@@ -9,6 +9,8 @@ import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
+import org.bukkit.GameRule;
+import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
@@ -33,7 +35,9 @@ import org.bukkit.plugin.java.JavaPlugin;
  * pfh perm &lt;player&gt; &lt;node&gt; &lt;true|false&gt;  -> grants/denies one permission node (kept across rejoins)
  * pfh state &lt;player&gt;                    -> one line of JSON: health, food, position, inventory, open menu
  * pfh entities &lt;player&gt; &lt;radius&gt;        -> JSON array of entities near the player
+ * pfh kill &lt;player&gt; &lt;target&gt;           -> the player kills the nearest entity of a type (or a player) with a real melee hit
  * </pre>
+ * On enable it also makes the world predictable: no fall damage, no natural mob spawning, always day.
  */
 public class HarnessPlugin extends JavaPlugin implements Listener {
 
@@ -46,6 +50,15 @@ public class HarnessPlugin extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         getServer().getPluginManager().registerEvents(this, this);
+        for (World world : getServer().getWorlds()) {
+            // Teleports into the air must not kill bots; scenarios summon the mobs they need.
+            world.setGameRule(GameRule.FALL_DAMAGE, false);
+            world.setGameRule(GameRule.DO_MOB_SPAWNING, false);
+            world.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
+            world.setGameRule(GameRule.DO_WEATHER_CYCLE, false);
+            world.setTime(1000);
+            world.setStorm(false);
+        }
     }
 
     @Override
@@ -65,8 +78,10 @@ public class HarnessPlugin extends JavaPlugin implements Listener {
             sender.sendMessage(state(args[1]).toString());
         } else if (args.length == 3 && args[0].equals("entities")) {
             sender.sendMessage(entities(args[1], Double.parseDouble(args[2])).toString());
+        } else if (args.length == 3 && args[0].equals("kill")) {
+            sender.sendMessage(kill(args[1], args[2]));
         } else {
-            sender.sendMessage("PFH ERROR usage: pfh ping | perm <player> <node> <true|false> | state <player> | entities <player> <radius>");
+            sender.sendMessage("PFH ERROR usage: pfh ping | perm <player> <node> <true|false> | state <player> | entities <player> <radius> | kill <player> <target>");
         }
         return true;
     }
@@ -119,6 +134,37 @@ public class HarnessPlugin extends JavaPlugin implements Listener {
             out.add("open", open);
         }
         return out;
+    }
+
+    /**
+     * The player kills a target: another online player by name, or the nearest living entity of a
+     * type within 32 blocks. A real melee hit after lowering its health, so EntityDamageByEntityEvent
+     * fires with the player as damager and EntityDeathEvent sees the player as killer.
+     */
+    private String kill(String name, String target) {
+        Player player = Bukkit.getPlayerExact(name);
+        if (player == null) return "PFH ERROR player " + name + " is not online";
+        LivingEntity victim = Bukkit.getPlayerExact(target);
+        if (victim == null) {
+            String type = target.toLowerCase(Locale.ROOT).replace("minecraft:", "");
+            double best = Double.MAX_VALUE;
+            for (Entity entity : player.getNearbyEntities(32, 32, 32)) {
+                if (!(entity instanceof LivingEntity living) || entity instanceof Player) continue;
+                if (!entity.getType().getKey().getKey().equals(type)) continue;
+                double d = entity.getLocation().distanceSquared(player.getLocation());
+                if (d < best) {
+                    best = d;
+                    victim = living;
+                }
+            }
+        }
+        if (victim == null) return "PFH ERROR no " + target + " within 32 blocks of " + name;
+        String what = victim instanceof Player p ? p.getName() : victim.getType().getKey().getKey();
+        victim.setNoDamageTicks(0);
+        victim.setHealth(Math.min(victim.getHealth(), 0.5));
+        player.attack(victim);
+        if (!victim.isDead()) victim.damage(1000, player);
+        return victim.isDead() ? "PFH OK killed " + what : "PFH ERROR " + what + " survived the hit";
     }
 
     /** Entities (not the player) within radius of a player: type, custom name, position, health. */

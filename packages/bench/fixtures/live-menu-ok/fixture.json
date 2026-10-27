@@ -1,5 +1,5 @@
 {
   "description": "Inventory menu plugin that L1 and L2 both accept: click gives a diamond, the count survives a restart, config and permissions apply.",
   "scaffold": { "name": "MenuDemo", "packageName": "dev.plugforge.menudemo", "description": "Menu with a diamond button" },
-  "expect": { "ok": true, "minTests": 3, "livePassed": 5 }
+  "expect": { "ok": true, "minTests": 3, "livePassed": 6 }
 }

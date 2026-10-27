@@ -76,6 +76,10 @@
     {
       "route": "report",
       "content": "{\"untested\":[{\"what\":\"Reload with a broken config.yml is not tested\",\"where\":\"GreeterAdminCommand.java\",\"risk\":\"low\"}]}"
+    },
+    {
+      "route": "report",
+      "contentFile": "manual.md"
     }
   ]
 }

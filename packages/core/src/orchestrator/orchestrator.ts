@@ -10,6 +10,7 @@ import type { StageContext } from "../stages/context.ts";
 import { fixProject } from "../stages/fixer.ts";
 import type { PhasePlanItem } from "../stages/phaseplanner.ts";
 import { reviewCoverage, specGaps, specLanguage } from "../stages/reporter.ts";
+import { writeManual } from "../stages/manual.ts";
 import { writeScenarios } from "../stages/scenariowriter.ts";
 import { reviewTests } from "../stages/testreview.ts";
 import { templateTestPath, testCoverage, writeTests, type CompileTests } from "../stages/testwriter.ts";
@@ -42,6 +43,13 @@ export interface AgentOptions {
   phases?: PhasePlanItem[];
   /** Cumulative spec for phase `index` (>= 1) on top of the previous phase's; may ask the user. */
   nextSpec?: (index: number, previous: PluginSpec) => Promise<PluginSpec>;
+  /**
+   * Improving a delivered project: how many phases of `phases` are already built in
+   * `projectDir` (their spec is `spec`, their outcomes `builtOutcomes`). The build starts at the
+   * next phase; a failure rolls back to the plugin as it was.
+   */
+  builtPhases?: number;
+  builtOutcomes?: PhaseOutcome[];
   /** Overlay with ready-made tests, laid out like the project (`src/test/java/...`). Single-phase only. */
   testsDir?: string;
   /** Compiles tests without running them; required when TestWriter writes the tests. */
@@ -188,7 +196,12 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
   const multi = plan.length > 1;
   if (multi && !o.nextSpec) throw new Error("nextSpec is required for a phased build");
   if (multi && o.testsDir) throw new Error("ready-made tests are only supported for a single-phase build");
-  const outcomes: PhaseOutcome[] = plan.map((p) => ({ title: p.title, status: "not_started", fixIterations: 0, criteria: [] }));
+  const built = o.builtPhases ?? 0;
+  const outcomes: PhaseOutcome[] = plan.map((p, i) =>
+    i < built
+      ? (o.builtOutcomes?.[i] ?? { title: p.title, status: "done", fixIterations: 0, criteria: [] })
+      : { title: p.title, status: "not_started", fixIterations: 0, criteria: [] },
+  );
   const disputes: string[] = [];
   let fixIterations = 0;
   let spec = o.spec;
@@ -253,10 +266,13 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
     const history: string[] = [];
     let lastSignature = "";
     let repeats = 0;
+    // Set when a fixer call failed: the code did not change, so the last check still holds.
+    let unchanged: CheckResult | undefined;
     for (;;) {
       await runLog.snapshot(fixIterations, projectDir);
-      await enter("CHECK", { iteration: outcome.fixIterations });
-      let result = await o.check(projectDir);
+      if (!unchanged) await enter("CHECK", { iteration: outcome.fixIterations });
+      let result = unchanged ?? (await o.check(projectDir));
+      unchanged = undefined;
       if (result.ok) {
         const conformance = await specConformance(projectDir, ctx.spec);
         if (conformance.length) result = { ...result, ok: false, failedStage: "validate", validate: { ok: false, durationMs: 0, diagnostics: conformance } };
@@ -278,7 +294,17 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
       outcome.fixIterations++;
       fixIterations++;
       await enter("FIX", { iteration: fixIterations, route, note: `#${outcome.fixIterations} via ${o.gateway.profileFor(route)}${repeats > 1 ? ` (same failure x${repeats})` : ""}` });
-      const fix = await fixProject(ctx, { check: result, route, history: history.slice(-5), iteration: fixIterations });
+      let fix: Awaited<ReturnType<typeof fixProject>>;
+      try {
+        fix = await fixProject(ctx, { check: result, route, history: history.slice(-5), iteration: fixIterations });
+      } catch (err) {
+        // A failed model call costs one fix attempt, not the whole phase.
+        if (err instanceof BudgetExceededError) throw err;
+        log(`Fixer call failed: ${(err as Error).message}`);
+        history.push(`#${outcome.fixIterations}: the fixer call failed (${(err as Error).message}); nothing changed`);
+        unchanged = result;
+        continue;
+      }
       disputes.push(...fix.disputes);
       log(`Fixer changed ${fix.changed.length ? fix.changed.join(", ") : "nothing"}${fix.explanation ? ` — ${fix.explanation.split("\n")[0]}` : ""}`);
       history.push(
@@ -315,8 +341,17 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
       log(`Reporter: coverage review failed (${(err as Error).message}); listing spec gaps only`);
     }
     log(`Reporter: ${untested.length} thing(s) not covered by tests`);
+    let manual: string | undefined;
+    try {
+      manual = await writeManual(ctx);
+      log(`Manual: ${manual.split("\n").length} lines`);
+    } catch (err) {
+      // Like the audit: no manual is better than no plugin.
+      if (err instanceof BudgetExceededError) throw err;
+      log(`Manual: not written (${(err as Error).message})`);
+    }
     const coverage = await coverageOf(deliveredSpec, projectDir);
-    const delivery = await deliver(projectDir, deliveredSpec, check, { paperVersion: o.minecraftVersion, coverage, untested, phases: multi ? outcomes : undefined });
+    const delivery = await deliver(projectDir, deliveredSpec, check, { paperVersion: o.minecraftVersion, coverage, untested, phases: multi ? outcomes : undefined, manual });
     return { coverage, delivery };
   };
 
@@ -328,10 +363,22 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
 
   let failure: { status: "stuck" | "error"; reason: string; check?: CheckResult } | undefined;
   try {
-    await enter("SCAFFOLD", { note: projectDir });
-    await scaffoldPlugin(projectDir, { name: spec.name, packageName: spec.package, mainClass: spec.mainClass, description: spec.description });
+    if (built) {
+      // The starting point must be green: it is what a failed improvement rolls back to.
+      await enter("CHECK", { note: `the existing plugin in ${projectDir}` });
+      const base = await o.check(projectDir);
+      if (!base.ok) {
+        const reason = `the existing plugin is not green (${failureSummary(base)}); run \`check\` on it first`;
+        return finish({ status: "error", reason, fixIterations, check: base, disputes, phases: outcomes });
+      }
+      green = { spec, check: base };
+      log(`existing plugin green: ${greenLine(base)}`);
+    } else {
+      await enter("SCAFFOLD", { note: projectDir });
+      await scaffoldPlugin(projectDir, { name: spec.name, packageName: spec.package, mainClass: spec.mainClass, description: spec.description });
+    }
 
-    for (let i = 0; i < plan.length; i++) {
+    for (let i = built; i < plan.length; i++) {
       const outcome = outcomes[i]!;
       const previous = i > 0 ? spec : undefined;
       try {

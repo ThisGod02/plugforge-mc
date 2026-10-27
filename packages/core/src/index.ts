@@ -16,5 +16,5 @@ export type { ChatMessage, ChatModel, LlmConfig, LlmProfile, Route } from "./llm
 export { applyEdits, parseEdits, type FileEdit } from "./stages/protocol.ts";
 export { runAgent, failureSignature, isEmptyDir, type AgentOptions, type AgentResult, type PhaseOutcome } from "./orchestrator/orchestrator.ts";
 export { RunLog } from "./orchestrator/runlog.ts";
-export { deliver, renderReadme, type Delivery } from "./orchestrator/deliver.ts";
+export { deliver, readPhaseHistory, renderReadme, type Delivery } from "./orchestrator/deliver.ts";
 export { reviewCoverage, specGaps, specLanguage, type UntestedItem } from "./stages/reporter.ts";

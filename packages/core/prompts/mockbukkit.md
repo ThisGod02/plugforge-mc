@@ -12,7 +12,7 @@ import org.mockbukkit.mockbukkit.command.ConsoleCommandSenderMock;
 PlayerMock steve = server.addPlayer("Steve");          // online player; names must be unique per test
 steve.performCommand("home set base");                   // no leading slash
 assertEquals("Home set.", steve.nextMessage());          // next message as plain text, null when none left
-assertNull(steve.nextMessage());                         // nothing more was sent
+assertNull(steve.nextMessage());                         // nothing more was sent (only when the criterion says so)
 steve.assertSaid("Home set."); steve.assertNoMoreSaid(); // same, as assertions
 
 ConsoleCommandSenderMock console = (ConsoleCommandSenderMock) server.getConsoleSender();
@@ -42,6 +42,7 @@ server.getPluginManager().assertEventFired(PlayerJoinEvent.class);
 
 Traps:
 - One `sendMessage` call is one `nextMessage()`. Messages queue per player; read them in order.
+- Leave room for later build phases: they add lines to help screens, info and status output. Check the lines the criterion names, in order, and stop there. Never pin the total number of lines, and never end a test with `assertNull(nextMessage())` or `assertNoMoreSaid()` unless the criterion itself says nothing else is sent (a denied or ignored action).
 - `nextMessage()` returns the plain text of an Adventure component. Expect exactly the spec text with placeholders filled in.
 - There is no `player.chat`/`assertChat` for command replies; use `nextMessage()`.
 - `addPlayer()` already fires PlayerJoinEvent; join messages the plugin sends are queued on that player.

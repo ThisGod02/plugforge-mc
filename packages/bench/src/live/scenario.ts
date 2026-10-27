@@ -52,6 +52,7 @@ const SERVER_ACTIONS = [
   "give",
   "teleport",
   "damage",
+  "kill",
   "expect_state",
   "expect_entities",
   "wait",
@@ -126,6 +127,10 @@ function checkArg(action: Action, arg: unknown, players: Set<string>): string[] 
       return isObj(arg) && isNum(arg.x) && isNum(arg.y) && isNum(arg.z) ? [...keys(arg, ["player", "x", "y", "z"]), ...player(arg.player)] : ["teleport needs {player, x, y, z}"];
     case "damage":
       return isObj(arg) && isNum(arg.amount) && arg.amount > 0 ? [...keys(arg, ["player", "amount"]), ...player(arg.player)] : ["damage needs {player, amount}"];
+    case "kill":
+      return isObj(arg) && isStr(arg.target) && /^[A-Za-z0-9_:]{3,40}$/.test(arg.target)
+        ? [...keys(arg, ["player", "target"]), ...player(arg.player)]
+        : ["kill needs {player, target: vanilla mob id like zombie, or another player's name}"];
     case "expect_entities": {
       if (!isObj(arg)) return ["expect_entities needs {player, radius, type, count | min | max}"];
       const counts = ["count", "min", "max"].filter((k) => arg[k] !== undefined);
@@ -172,7 +177,7 @@ function parseSteps(raw: unknown, where: string, players: string[], errors: stri
     let arg = s[action];
     // Player-targeted server actions: `as` (which models write naturally) names the player, and a
     // single-player scenario needs neither.
-    const targeted = ["perm", "give", "teleport", "damage", "expect_state", "expect_entities"].includes(action);
+    const targeted = ["perm", "give", "teleport", "damage", "kill", "expect_state", "expect_entities"].includes(action);
     if (!isBotAction(action) && as !== undefined) {
       if (!targeted || !isObj(arg)) return void errors.push(`${at}: '${action}' is a server action and takes no 'as'`);
       if (arg.player !== undefined && arg.player !== as) return void errors.push(`${at}: 'as: ${as}' and 'player: ${String(arg.player)}' disagree`);

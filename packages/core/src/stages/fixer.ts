@@ -4,7 +4,7 @@ import { readTree, renderFiles } from "../workspace/files.ts";
 import { baseVars, mainClassPath, renderPrompt, renderTests, systemMessage, type StageContext } from "./context.ts";
 import { applyEdits, parseEdits } from "./protocol.ts";
 
-const MAX_SOURCE_CHARS = 150_000;
+const MAX_SOURCE_CHARS = 260_000;
 
 export interface FixOutcome {
   changed: string[];
@@ -15,17 +15,34 @@ export interface FixOutcome {
   explanation: string;
 }
 
-/** All main sources, or only the ones the failure points at when the project is large. */
+/**
+ * All main sources while they fit; on a large project the files the failure names, then the
+ * ones the failing tests use, then the rest smallest first. Omitted files are listed by name.
+ */
 async function relevantSources(ctx: StageContext, check: CheckResult): Promise<Map<string, string>> {
   const all = await readTree(ctx.projectDir, "src/main");
   const size = [...all.values()].reduce((n, c) => n + c.length, 0);
   if (size <= MAX_SOURCE_CHARS) return all;
   const text = formatCheckResult(check);
+  const tests = [...(await readTree(ctx.projectDir, "src/test")).entries()]
+    .filter(([rel]) => text.includes(rel.split("/").pop()!.replace(/\.(java|yml)$/, "")))
+    .map(([, content]) => content)
+    .join("\n");
+  const base = (rel: string) => rel.split("/").pop()!.replace(/\.java$/, "");
+  const rank = (rel: string) =>
+    rel === mainClassPath(ctx.spec) || rel.endsWith("plugin.yml") || text.includes(rel) || text.includes(base(rel)) ? 0 : tests.includes(base(rel)) ? 1 : 2;
+  const ordered = [...all.keys()].sort((a, b) => rank(a) - rank(b) || all.get(a)!.length - all.get(b)!.length);
   const keep = new Map<string, string>();
-  for (const [rel, content] of all) {
-    const base = rel.split("/").pop()!.replace(/\.java$/, "");
-    if (rel === mainClassPath(ctx.spec) || rel.endsWith("plugin.yml") || text.includes(rel) || text.includes(base)) keep.set(rel, content);
+  const omitted: string[] = [];
+  let used = 0;
+  for (const rel of ordered) {
+    const content = all.get(rel)!;
+    if (rank(rel) === 0 || used + content.length <= MAX_SOURCE_CHARS) {
+      keep.set(rel, content);
+      used += content.length;
+    } else omitted.push(rel);
   }
+  if (omitted.length) keep.set("(not shown, too large to include)", omitted.join("\n"));
   return keep;
 }
 

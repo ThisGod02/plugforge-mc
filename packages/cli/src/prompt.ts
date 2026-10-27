@@ -15,6 +15,33 @@ export async function ask(question: string): Promise<string> {
   }
 }
 
+/**
+ * Free text that may be pasted as several lines: lines arriving together are joined, and the
+ * answer ends on an empty line or when nothing more arrives for a moment after the last one.
+ * A plain Enter (empty first line) answers "".
+ */
+export async function askLines(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  rl.setPrompt(question);
+  rl.prompt();
+  const lines: string[] = [];
+  try {
+    return await new Promise<string>((resolve) => {
+      let idle: NodeJS.Timeout | undefined;
+      const done = () => resolve(lines.join("\n").trim());
+      rl.on("line", (line) => {
+        clearTimeout(idle);
+        if (!line.trim()) return done();
+        lines.push(line.trim());
+        idle = setTimeout(done, 500);
+      });
+      rl.on("close", done);
+    });
+  } finally {
+    rl.close();
+  }
+}
+
 function pick(q: ClarifyQuestion, raw: number | string | null | undefined): string {
   if (raw === null || raw === undefined || raw === "") return q.options[0]!;
   if (typeof raw === "number" || /^\d+$/.test(raw)) {
@@ -37,7 +64,7 @@ export async function answerQuestions(questions: ClarifyQuestion[], opts: { scri
     else {
       for (;;) {
         try {
-          answer = pick(q, await ask("   Number, your own answer, or Enter for 1: "));
+          answer = pick(q, await askLines("   Number, your own answer, or Enter for 1: "));
           break;
         } catch (err) {
           console.log(`   ${(err as Error).message}`);
@@ -122,7 +149,7 @@ export async function askApproval(spec: PluginSpec | undefined, what = "this spe
       continue;
     }
     if (a === "e" || a === "edit" || a === "и") {
-      const feedback = await ask("What should change? ");
+      const feedback = await askLines("What should change? (pasting several lines is fine) ");
       if (feedback) return { action: "revise", feedback };
       continue;
     }

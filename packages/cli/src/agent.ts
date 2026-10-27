@@ -13,6 +13,7 @@ import {
   loadLlmConfig,
   loadSpec,
   planPhases,
+  readPhaseHistory,
   renderPlan,
   resolveApiKey,
   runAgent,
@@ -22,6 +23,7 @@ import {
   type Delivery,
   type LlmCall,
   type LlmContext,
+  type PhaseOutcome,
   type PhasePlanItem,
   type PluginSpec,
 } from "@plugforge/core";
@@ -63,6 +65,8 @@ export interface CreateCommandOptions extends AgentEnv {
   out?: string;
   /** Approve the spec and take recommended answers without asking. */
   yes: boolean;
+  /** Ask for every phase spec too, not only for the build plan. */
+  reviewSpecs?: boolean;
   /** JSON array of answers for the clarifying questions (see ScriptedAnswers). */
   answersFile?: string;
   scripted?: string;
@@ -88,12 +92,61 @@ export async function runCommand(o: RunCommandOptions): Promise<boolean> {
   return execute(spec, session, o, { out: o.out, testsDir, maxFix: o.maxFix, intake: { specFile } });
 }
 
+/** A delivered project that `improve` builds new phases on. */
+interface BaseProject {
+  dir: string;
+  spec: PluginSpec;
+  /** Phases already built, in order (one synthetic entry for single-phase projects). */
+  history: PhaseOutcome[];
+}
+
 /** `plugforge create`: text request → questions → spec → approval → tests → code → fixes. */
 export async function createCommand(o: CreateCommandOptions): Promise<boolean> {
   // Fail before the questions, not after the user has answered them and approved a spec.
   if (o.out && !(await isEmptyDir(o.out))) throw new Error(`output directory is not empty: ${path.resolve(o.out)}`);
   const request = o.request?.trim() || (interactive() ? await ask("Describe the plugin you want: ") : "");
   if (!request) throw new Error('usage: create "<what the plugin should do>"');
+  return fromRequest(o, request);
+}
+
+/**
+ * `plugforge improve <dir>`: a change request for a plugin the agent delivered. New phases are
+ * built on top of it; its tests and scenarios stay as regression, and a failure rolls back to it.
+ */
+export async function improveCommand(o: CreateCommandOptions & { dir: string }): Promise<boolean> {
+  const dir = path.resolve(o.dir);
+  const specFile = path.join(dir, "spec.json");
+  if (!existsSync(specFile) || !existsSync(path.join(dir, ".plugforge"))) {
+    throw new Error(`${dir} is not a project PlugForge built (no spec.json or .plugforge/)`);
+  }
+  const spec = await loadSpec(specFile);
+  const history: PhaseOutcome[] = (await readPhaseHistory(dir)) ?? [
+    { title: spec.name, status: "done", fixIterations: 0, criteria: spec.acceptance.map((a) => a.id) },
+  ];
+  // Phase k writes <Main>Phase<k>Test.java; never reuse a number a test file already has.
+  const testDir = path.join(dir, "src", "test", "java");
+  const numbers = existsSync(testDir)
+    ? readdirSync(testDir, { recursive: true }).map((f) => /Phase(\d+)Test\.java$/.exec(String(f))?.[1]).filter(Boolean).map(Number)
+    : [];
+  while (history.length < Math.max(0, ...numbers)) history.push({ title: `(phase ${history.length + 1})`, status: "done", fixIterations: 0, criteria: [] });
+  const request = o.request?.trim() || (interactive() ? await ask(`What should change in ${spec.name}? `) : "");
+  if (!request) throw new Error('usage: improve <project dir> "<what to add or change>"');
+  return fromRequest(o, request, { dir, spec, history });
+}
+
+/** Questions → build plan (the one approval) → phase specs → build, for create and improve. */
+async function fromRequest(o: CreateCommandOptions, userRequest: string, base?: BaseProject): Promise<boolean> {
+  // The model sees what exists, so it plans and specifies only the change.
+  const request = base
+    ? [
+        `Improve the existing plugin "${base.spec.name}" (${base.spec.description}).`,
+        `It is already built and tested: commands ${base.spec.commands.map((c) => `/${c.name}`).join(", ") || "none"}; ` +
+          `${base.spec.acceptance.length} acceptance criteria (AC1–AC${base.spec.acceptance.length}).`,
+        "Ask, plan and specify only the new work below, on top of what exists; keep every existing feature working.",
+        "",
+        `Requested change: ${userRequest}`,
+      ].join("\n")
+    : userRequest;
   const scriptedAnswers = o.answersFile ? (JSON.parse(await readFile(path.resolve(o.answersFile), "utf8")) as ScriptedAnswers) : undefined;
   const session = await openSession(o.scripted, o.log);
   const ctx: LlmContext = { gateway: session.gateway, paperApi: o.paperApi, pluginApiVersion: o.pluginApiVersion, log: o.log };
@@ -119,11 +172,18 @@ export async function createCommand(o: CreateCommandOptions): Promise<boolean> {
     return false;
   };
   /** Shows a draft and loops until the user approves it, asks for changes, or cancels. */
-  const approve = async <T,>(what: string, draft: T, show: (d: T) => string, revise: (d: T, feedback: string) => Promise<T>, isSpec = false): Promise<T | undefined> => {
+  const approve = async <T,>(
+    what: string,
+    draft: T,
+    show: (d: T) => string,
+    revise: (d: T, feedback: string) => Promise<T>,
+    isSpec = false,
+    auto?: string,
+  ): Promise<T | undefined> => {
     for (let d = draft; ; ) {
       console.log(`\n${"-".repeat(72)}\n${show(d)}\n${"-".repeat(72)}`);
-      if (o.yes) {
-        o.log(`${what} approved (--yes)`);
+      if (o.yes || auto) {
+        o.log(`${what} approved (${o.yes ? "--yes" : auto})`);
         return d;
       }
       if (!interactive()) throw new Error(`the ${what} needs your approval: run in a terminal, or pass --yes`);
@@ -139,28 +199,42 @@ export async function createCommand(o: CreateCommandOptions): Promise<boolean> {
 
   // PHASES: big requests are built in steps, each on top of the previous one.
   await session.runLog.event("PHASES");
+  const draftPlan = await planPhases(ctx, { request, answers });
+  // A one-phase plan says nothing new: the spec approval right after is the real check.
   const plan = await approve(
     "build plan",
-    await planPhases(ctx, { request, answers }),
-    (p) => (p.length === 1 ? `Build plan: one phase — ${p[0]!.title}` : `Build plan: ${p.length} phases, each on top of the previous one\n\n${renderPlan(p)}`),
+    draftPlan,
+    (p) =>
+      base
+        ? `Improvement plan for ${base.spec.name}: ${p.length} new phase(s) on top of the ${base.history.length} built\n\n${renderPlan(p)}`
+        : p.length === 1
+          ? `Build plan: one phase — ${p[0]!.title}`
+          : `Build plan: ${p.length} phases, each on top of the previous one\n\n${renderPlan(p)}`,
     (p, feedback) => planPhases(ctx, { request, answers, revise: { plan: p, feedback } }),
+    false,
+    draftPlan.length === 1 && !base ? "one phase" : undefined,
   );
   if (!plan) return cancelled("the build plan", undefined);
-  const multi = plan.length > 1;
-  const phaseInfo = (index: number) => ({ index, plan });
+  // Improvements continue the numbering: built phases come first, already done.
+  const fullPlan: PhasePlanItem[] = base ? [...base.history.map((h) => ({ title: h.title, goal: "Already built and tested." })), ...plan] : plan;
+  const multi = fullPlan.length > 1;
+  const phaseInfo = (index: number) => ({ index, plan: fullPlan });
 
-  // SPEC + SPEC_APPROVAL for the first phase; later phases are written and approved as they start.
+  // SPEC + SPEC_APPROVAL. With several phases the approved plan is the one stop: phase specs are
+  // shown and built without asking, so a long build runs unattended (--review-specs asks again).
   await session.runLog.event("SPEC");
-  const title = (i: number) => (multi ? `Phase ${i + 1}/${plan.length}: ${plan[i]!.title}\n\n` : "");
-  const first = await approve(
+  const title = (i: number) => (multi ? `Phase ${i + 1}/${fullPlan.length}: ${fullPlan[i]!.title}\n\n` : "");
+  const autoSpec = multi && !o.reviewSpecs ? "the build plan is approved" : undefined;
+  const first = base?.spec ?? await approve(
     multi ? "phase 1 spec" : "spec",
     await writeSpec(ctx, { request, answers, phase: phaseInfo(0) }),
     (s) => title(0) + renderSpec(s),
     (s, feedback) => writeSpec(ctx, { request, answers, phase: phaseInfo(0), revise: { spec: s, feedback } }),
     true,
+    autoSpec,
   );
   if (!first) return cancelled("the spec", undefined);
-  await session.runLog.event("SPEC_APPROVED", { phase: 1 });
+  if (!base) await session.runLog.event("SPEC_APPROVED", { phase: 1 });
 
   const nextSpec = async (index: number, previous: PluginSpec): Promise<PluginSpec> => {
     const what = `phase ${index + 1} spec`;
@@ -170,13 +244,23 @@ export async function createCommand(o: CreateCommandOptions): Promise<boolean> {
       (s) => `${title(index)}Changes on top of phase ${index}:\n\n${renderSpecDiff(previous, s)}`,
       (s, feedback) => writeSpec(ctx, { request, answers, phase: phaseInfo(index), previous, revise: { spec: s, feedback } }),
       true,
+      autoSpec,
     );
     // Cancelling a later phase keeps what is built: the orchestrator rolls back and delivers it.
     if (!spec) throw new Error(`cancelled by the user before phase ${index + 1}`);
     await session.runLog.event("SPEC_APPROVED", { phase: index + 1 });
     return spec;
   };
-  return execute(first, session, o, { out: o.out, maxFix: o.maxFix, intake: { request, answers, revisions }, phases: plan, nextSpec: multi ? nextSpec : undefined });
+  return execute(first, session, o, {
+    out: base?.dir ?? o.out,
+    existing: !!base,
+    maxFix: o.maxFix,
+    intake: { request: userRequest, ...(base ? { improves: base.dir } : {}), answers, revisions },
+    phases: fullPlan,
+    builtPhases: base?.history.length,
+    builtOutcomes: base?.history,
+    nextSpec: multi ? nextSpec : undefined,
+  });
 }
 
 async function openSession(scriptedFile: string | undefined, log: Log): Promise<Session> {
@@ -211,11 +295,15 @@ async function execute(
     intake?: Record<string, unknown>;
     phases?: PhasePlanItem[];
     nextSpec?: (index: number, previous: PluginSpec) => Promise<PluginSpec>;
+    /** `out` is a delivered project to improve, not a new folder. */
+    existing?: boolean;
+    builtPhases?: number;
+    builtOutcomes?: PhaseOutcome[];
   },
 ): Promise<boolean> {
   const { gateway, runLog, scripted } = session;
   const projectDir = opts.out ? path.resolve(opts.out) : defaultProjectDir(spec.name);
-  if (!(await isEmptyDir(projectDir))) throw new Error(`output directory is not empty: ${projectDir}`);
+  if (!opts.existing && !(await isEmptyDir(projectDir))) throw new Error(`output directory is not empty: ${projectDir}`);
   const bench = { java: env.java, gradle: env.gradle, log: env.log };
   let skipNoted = false;
   // L0 + L1, then L2 on a real server when the unit tests are green and the project has scenarios.
@@ -248,6 +336,8 @@ async function execute(
     liveScenarios: env.live,
     phases: opts.phases,
     nextSpec: opts.nextSpec,
+    builtPhases: opts.builtPhases,
+    builtOutcomes: opts.builtOutcomes,
   });
 
   if (result.check) console.log(`\n${formatCheckResult(result.check)}`);
@@ -289,6 +379,7 @@ export function printDelivery(d: Delivery): void {
       `PLUGIN   ${d.jar}`,
       "         copy it into your server's plugins/ folder and restart the server",
       `README   ${d.readme}`,
+      ...(d.manual ? [`MANUAL   ${d.manual}`] : []),
       d.untested.length
         ? `UNTESTED ${d.untested.length} thing(s) the tests do not prove (${high.length} high risk), listed in the README:`
         : "UNTESTED nothing found",

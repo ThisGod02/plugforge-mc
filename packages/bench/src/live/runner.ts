@@ -9,6 +9,10 @@ import { connectBot } from "./bot.ts";
 import type { Scenario, Step } from "./scenario.ts";
 import { TestServer } from "./server.ts";
 
+/** Vanilla console replies that mean the command did nothing. */
+const CONSOLE_FAILURE =
+  /^(No entity was found|No player was found|No targets matched|Unknown or incomplete command|Incorrect argument|Invalid|Unknown (item|block|entity|effect)|Expected |Can't |Unable to |That position is not loaded)/im;
+
 export interface LiveTestOptions {
   java: JavaRuntime;
   paper: PaperInstall;
@@ -252,8 +256,12 @@ class ScenarioRun {
         await sleep(300);
         return;
       }
-      case "console":
-        return (await this.server.command(String(step.arg))).trim() || undefined;
+      case "console": {
+        const out = (await this.server.command(String(step.arg))).trim();
+        // Vanilla answers a bad command with text, not an error; a silent no-op hides broken setup.
+        if (CONSOLE_FAILURE.test(out)) throw new StepFailure(`console "${step.arg}" failed: ${out.slice(0, 300)}`);
+        return out || undefined;
+      }
       case "expect_console": {
         const out = await this.server.command(String(a.command));
         if (!out.includes(String(a.contains))) throw new StepFailure(`console "${a.command}" answered "${out.trim().slice(0, 300)}", expected it to contain "${a.contains}"`);
@@ -284,6 +292,12 @@ class ScenarioRun {
         await this.server.command(`damage ${a.player} ${a.amount}`);
         await sleep(300);
         return;
+      case "kill": {
+        const out = await this.server.command(`pfh kill ${a.player} ${a.target}`);
+        if (!out.includes("PFH OK")) throw new StepFailure(`harness answered "${out.trim()}"`);
+        await sleep(300);
+        return out.replace("PFH OK ", "").trim();
+      }
       case "expect_state":
         return this.expectState(step.arg as Record<string, unknown>);
       case "expect_entities":

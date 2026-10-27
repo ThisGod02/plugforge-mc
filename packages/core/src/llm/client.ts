@@ -34,6 +34,11 @@ export class OpenAiCompatibleModel implements ChatModel {
     private readonly apiKey: string | undefined,
   ) {}
 
+  // Fixer calls with high reasoning on a big project run past 5 minutes on slow gateways.
+  private get timeoutMs(): number {
+    return this.profile.timeoutMs ?? 900_000;
+  }
+
   async complete(req: ChatRequest): Promise<ChatResponse> {
     const p = this.profile;
     const body: Record<string, unknown> = {
@@ -50,8 +55,10 @@ export class OpenAiCompatibleModel implements ChatModel {
       try {
         return await this.send(body);
       } catch (err) {
-        const e = err instanceof LlmHttpError ? err : new LlmHttpError((err as Error).message, undefined, true);
-        if (!e.retryable || attempt >= MAX_ATTEMPTS) throw e;
+        const timedOut = (err as Error).name === "TimeoutError";
+        const e = err instanceof LlmHttpError ? err : new LlmHttpError(timedOut ? `${this.profile.model}: no answer within ${this.timeoutMs / 1000}s` : (err as Error).message, undefined, true);
+        // A request that timed out once is likely to time out again: one more try, not three.
+        if (!e.retryable || attempt >= (timedOut ? 2 : MAX_ATTEMPTS)) throw e;
         await delay(2000 * 2 ** (attempt - 1));
       }
     }
@@ -66,7 +73,7 @@ export class OpenAiCompatibleModel implements ChatModel {
         ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.profile.timeoutMs ?? 300_000),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     const text = await res.text();
     let json: OpenAiResponse | undefined;

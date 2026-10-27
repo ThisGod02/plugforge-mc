@@ -44,7 +44,9 @@ function serverProperties(port: number, rconPort: number, rconPassword: string):
     "view-distance=4",
     "simulation-distance=4",
     "max-players=8",
-    "difficulty=peaceful",
+    // Easy, not peaceful: peaceful removes hostile mobs the moment a scenario summons them.
+    "difficulty=easy",
+    "spawn-monsters=false",
     "allow-flight=true",
     "sync-chunk-writes=false",
     "motd=PlugForge test bench",

@@ -26,7 +26,7 @@ import {
   saveSettings,
   type Log,
 } from "@plugforge/runtime";
-import { createCommand, keySetCommand, llmPingCommand, printDelivery, runCommand } from "./agent.ts";
+import { createCommand, improveCommand, keySetCommand, llmPingCommand, printDelivery, runCommand } from "./agent.ts";
 import { runSelftest } from "./selftest.ts";
 
 const started = Date.now();
@@ -42,12 +42,15 @@ Commands:
                         on an agent project also refreshes dist/ and README (--audit re-runs the
                         untested-behaviour review with the model)
   selftest              Run the bench fixtures and compare with expected results (--only, --keep, --verbose)
-  create "<request>"    Agent from a text request: questions → spec (you approve it) → tests → code → fixes
+  create "<request>"    Agent from a text request: questions → plan (you approve it) → per phase spec → tests → code → fixes
                         (--out <dir>, --yes to take recommended answers and approve, --answers <file.json>,
-                         --max-fix <n> [8], --scripted <replies.json> to replay canned LLM answers)
+                         --review-specs to approve every phase spec too, --max-fix <n> [10],
+                         --scripted <replies.json> to replay canned LLM answers)
+  improve <dir> "<change>"  Add to or change a plugin the agent built: new phases on top of it, the old
+                        tests stay as regression, a failed change rolls back (same flags as create, no --out)
   run <spec.json>       Agent from a ready spec: tests (ready-made or TestWriter) → code → fixes
                         (--out <dir>, --tests <dir> [default: tests/ next to the spec, else TestWriter],
-                         --max-fix <n> [8], --scripted <replies.json>)
+                         --max-fix <n> [10], --scripted <replies.json>)
   key set <name>        Store an API key, e.g. "key set deepseek" (encrypted with Windows DPAPI)
                         create and run play live scenarios on a real Paper server after the unit
                         tests pass; --skip-live turns that off
@@ -197,6 +200,7 @@ async function main() {
       "max-fix": { type: "string" },
       answers: { type: "string" },
       yes: { type: "boolean", short: "y", default: false },
+      "review-specs": { type: "boolean", default: false },
       "skip-live": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -236,12 +240,17 @@ async function main() {
       if (!ok) process.exitCode = 1;
       break;
     }
-    case "create": {
+    case "create":
+    case "improve": {
+      const improving = positionals[0] === "improve";
+      if (improving && !positionals[1]) throw new Error('usage: improve <project dir> "<what to add or change>"');
       const { versions, java, gradle, paper } = await setup();
-      const ok = await createCommand({
-        request: positionals.slice(1).join(" "),
+      const run = improving ? (o: Parameters<typeof createCommand>[0]) => improveCommand({ ...o, dir: positionals[1]! }) : createCommand;
+      const ok = await run({
+        request: positionals.slice(improving ? 2 : 1).join(" "),
         out: values.out,
         yes: values.yes!,
+        reviewSpecs: values["review-specs"],
         answersFile: values.answers,
         scripted: values.scripted,
         maxFix: parseMaxFix(values["max-fix"]),

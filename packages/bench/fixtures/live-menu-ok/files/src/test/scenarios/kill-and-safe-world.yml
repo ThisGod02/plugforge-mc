@@ -1,0 +1,15 @@
+id: kill-and-safe-world
+covers: [extra]
+description: Harness check — a hostile mob survives being summoned, kill attributes it to the player, a high teleport does not hurt
+players: [alice, bob]
+steps:
+  - console: "execute at alice run summon zombie ~2 ~ ~2"
+  - expect_entities: { player: alice, radius: 8, type: zombie, count: 1 }
+  - kill: { player: alice, target: zombie }
+  - expect_entities: { player: alice, radius: 8, type: zombie, count: 0 }
+  - kill: { player: alice, target: bob }
+  - as: bob
+    expect_chat: "bob was slain by alice"
+  - teleport: { player: alice, x: 0, y: 64, z: 0 }
+  - wait: 6
+  - expect_state: { player: alice, health: 20, near: { x: 0, y: -60, z: 0, radius: 2 } }
