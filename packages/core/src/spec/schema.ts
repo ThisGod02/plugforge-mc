@@ -28,6 +28,11 @@ export const specSchema = {
             pattern: "^[a-z0-9_.-]+$",
             description: "Only when Bukkit's default denial is fine; omit it when a custom noPermission message is wanted",
           },
+          checksPermission: {
+            type: "string",
+            pattern: "^[a-z0-9_.-]+$",
+            description: "Permission the command checks in code (sending its own noPermission message) instead of declaring it in plugin.yml",
+          },
           playerOnly: { type: "boolean" },
         },
       },

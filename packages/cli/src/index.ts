@@ -1,8 +1,9 @@
 #!/usr/bin/env -S npx tsx
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { TestServer, checkProject, connectBot, formatCheckResult } from "@plugforge/bench";
-import { scaffoldPlugin } from "@plugforge/core";
+import { deliver, loadSpec, readTree, scaffoldPlugin, testCoverage } from "@plugforge/core";
 import {
   benchVersions,
   ensureGradle,
@@ -13,7 +14,7 @@ import {
   saveSettings,
   type Log,
 } from "@plugforge/runtime";
-import { createCommand, keySetCommand, llmPingCommand, runCommand } from "./agent.ts";
+import { createCommand, keySetCommand, llmPingCommand, printDelivery, runCommand } from "./agent.ts";
 import { runSelftest } from "./selftest.ts";
 
 const started = Date.now();
@@ -72,6 +73,17 @@ async function check(dir: string | undefined, opts: { json: boolean; verbose: bo
     verbose: opts.verbose,
   });
   console.log(opts.json ? JSON.stringify(result, null, 2) : formatCheckResult(result));
+  // Agent-made projects carry spec.json: a green check refreshes dist/ and README.md.
+  const specFile = path.join(path.resolve(dir), "spec.json");
+  if (result.ok && existsSync(specFile)) {
+    const spec = await loadSpec(specFile);
+    const tests = await readTree(path.resolve(dir), "src/test");
+    const delivery = await deliver(path.resolve(dir), spec, result, {
+      paperVersion: versions.minecraft,
+      coverage: testCoverage(spec, tests).byCriterion,
+    });
+    if (!opts.json) printDelivery(delivery);
+  }
   if (!result.ok) process.exitCode = 1;
 }
 
@@ -192,6 +204,7 @@ async function main() {
         gradle,
         paperApi: versions.paperApi,
         pluginApiVersion: versions.pluginApiVersion,
+        minecraftVersion: versions.minecraft,
         log,
       });
       if (!ok) process.exitCode = 1;
@@ -211,6 +224,7 @@ async function main() {
         gradle,
         paperApi: versions.paperApi,
         pluginApiVersion: versions.pluginApiVersion,
+        minecraftVersion: versions.minecraft,
         log,
       });
       if (!ok) process.exitCode = 1;

@@ -12,6 +12,7 @@ import { templateTestPath, testCoverage, writeTests, type CompileTests } from ".
 import { scaffoldPlugin } from "../workspace/scaffold.ts";
 import { listFiles, lockedFingerprint, readTree } from "../workspace/files.ts";
 import { specConformance } from "./conformance.ts";
+import { deliver, type Delivery } from "./deliver.ts";
 import type { RunLog } from "./runlog.ts";
 
 export type AgentState = "SCAFFOLD" | "TESTS_WRITE" | "CODE_WRITE" | "CHECK" | "FIX" | "TEST_REVIEW" | "DONE" | "STUCK" | "ERROR";
@@ -35,6 +36,8 @@ export interface AgentOptions {
   log: Log;
   paperApi: string;
   pluginApiVersion: string;
+  /** Minecraft/Paper version the plugin was tested on, for the README. */
+  minecraftVersion: string;
   /** PLAN.md §3: max_fix_iterations, 8 by default. */
   maxFixIterations?: number;
   /** Same failure this many times in a row → use the fix_escalation route. */
@@ -52,6 +55,8 @@ export interface AgentResult {
   disputes: string[];
   /** Test methods per acceptance criterion. */
   coverage?: Record<string, string[]>;
+  /** The installable jar and README, only when status is "done". */
+  delivery?: Delivery;
 }
 
 function errorsOf(r: CheckResult): Diagnostic[] {
@@ -120,6 +125,7 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
       reason: result.reason,
       fixIterations: result.fixIterations,
       testReviews: reviews,
+      delivery: result.delivery,
       disputes: result.disputes,
       coverage,
       intake: o.intake,
@@ -176,7 +182,8 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
 
       if (result.ok) {
         const t = result.test;
-        return await finish({ status: "done", reason: `L0+L1 green, ${t?.passed}/${t?.total} tests`, fixIterations, check: result, disputes });
+        const delivery = await deliver(projectDir, spec, result, { paperVersion: o.minecraftVersion, coverage });
+        return await finish({ status: "done", reason: `L0+L1 green, ${t?.passed}/${t?.total} tests`, fixIterations, check: result, disputes, delivery });
       }
       log(`check failed: ${failureSummary(result)}`);
       if (fixIterations >= maxFix) return await finish({ status: "stuck", reason: `fix limit of ${maxFix} iterations reached`, fixIterations, check: result, disputes });

@@ -15,3 +15,4 @@ export type { ChatMessage, ChatModel, LlmConfig, LlmProfile, Route } from "./llm
 export { applyEdits, parseEdits, type FileEdit } from "./stages/protocol.ts";
 export { runAgent, failureSignature, isEmptyDir, type AgentOptions, type AgentResult } from "./orchestrator/orchestrator.ts";
 export { RunLog } from "./orchestrator/runlog.ts";
+export { deliver, renderReadme, type Delivery } from "./orchestrator/deliver.ts";

@@ -12,7 +12,8 @@
     {
       "name": "greeter",
       "description": "Greeter admin commands",
-      "usage": "/greeter reload"
+      "usage": "/greeter reload",
+      "checksPermission": "greeter.admin"
     }
   ],
   "permissions": [

@@ -31,6 +31,9 @@ export async function specConformance(projectDir: string, spec: PluginSpec): Pro
     if (c.permission && declared?.permission !== c.permission) {
       out.push(err(`command '${c.name}' must declare 'permission: ${c.permission}' (spec)`));
     }
+    if (c.checksPermission && declared?.permission) {
+      out.push(err(`command '${c.name}' must not declare 'permission:'; the spec has the code check ${c.checksPermission} and send its own message`));
+    }
   }
   const permissions = (yml.permissions ?? {}) as Record<string, Record<string, unknown> | null>;
   for (const p of spec.permissions ?? []) {

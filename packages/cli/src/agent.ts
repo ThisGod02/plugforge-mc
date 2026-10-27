@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { checkProject, compileTests, formatCheckResult } from "@plugforge/bench";
 import {
@@ -16,6 +17,7 @@ import {
   storeApiKey,
   writeSpec,
   type Answer,
+  type Delivery,
   type LlmCall,
   type LlmContext,
   type PluginSpec,
@@ -29,7 +31,17 @@ export interface AgentEnv {
   gradle: GradleInstall;
   paperApi: string;
   pluginApiVersion: string;
+  minecraftVersion: string;
   log: Log;
+}
+
+/** Where projects go without --out: a visible folder per plugin, never inside this repository. */
+export function defaultProjectDir(name: string): string {
+  const root = path.join(os.homedir(), "PlugForge");
+  for (let i = 1; ; i++) {
+    const dir = path.join(root, i === 1 ? name : `${name}-${i}`);
+    if (!existsSync(dir) || readdirSync(dir).length === 0) return dir;
+  }
 }
 
 export interface RunCommandOptions extends AgentEnv {
@@ -147,7 +159,7 @@ async function execute(
   opts: { out?: string; testsDir?: string; maxFix?: number; intake?: Record<string, unknown> },
 ): Promise<boolean> {
   const { gateway, runLog, scripted } = session;
-  const projectDir = path.resolve(opts.out ?? path.join("out", `${spec.name}-${runLog.id}`));
+  const projectDir = opts.out ? path.resolve(opts.out) : defaultProjectDir(spec.name);
   if (!(await isEmptyDir(projectDir))) throw new Error(`output directory is not empty: ${projectDir}`);
   const bench = { java: env.java, gradle: env.gradle, log: env.log };
 
@@ -160,6 +172,7 @@ async function execute(
     log: env.log,
     paperApi: env.paperApi,
     pluginApiVersion: env.pluginApiVersion,
+    minecraftVersion: env.minecraftVersion,
     maxFixIterations: opts.maxFix,
     intake: opts.intake,
     check: (dir) => checkProject({ ...bench, projectDir: dir, pluginApiVersion: env.pluginApiVersion }),
@@ -181,8 +194,21 @@ async function execute(
       ...result.disputes.map((d) => `TEST DISPUTE ${d}`),
     ].join("\n"),
   );
+  if (result.delivery) printDelivery(result.delivery);
+  else console.log("\nNo plugin jar was delivered: the checks are not green. The project and the run log show where it stopped.");
   if (scripted && scripted.remaining > 0) env.log(`note: ${scripted.remaining} scripted replies were not used`);
   return result.status === "done";
+}
+
+export function printDelivery(d: Delivery): void {
+  console.log(
+    [
+      "",
+      `PLUGIN   ${d.jar}`,
+      "         copy it into your server's plugins/ folder and restart the server",
+      `README   ${d.readme}`,
+    ].join("\n"),
+  );
 }
 
 /** Reads a line from the terminal without echoing it. */

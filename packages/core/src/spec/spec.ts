@@ -8,6 +8,8 @@ export interface SpecCommand {
   aliases?: string[];
   /** Declared in plugin.yml; Bukkit then rejects senders without it before the executor runs. */
   permission?: string;
+  /** Checked by the plugin's own code, which answers with its own noPermission message. */
+  checksPermission?: string;
   playerOnly?: boolean;
 }
 
@@ -63,6 +65,10 @@ export function validateSpec(spec: unknown): string[] {
   const declared = new Set((s.permissions ?? []).map((p) => p.node));
   for (const c of s.commands) {
     if (c.permission && !declared.has(c.permission)) errors.push(`commands.${c.name}: permission '${c.permission}' is not in 'permissions'`);
+    if (c.checksPermission && !declared.has(c.checksPermission)) {
+      errors.push(`commands.${c.name}: checksPermission '${c.checksPermission}' is not in 'permissions'`);
+    }
+    if (c.permission && c.checksPermission) errors.push(`commands.${c.name}: use either permission or checksPermission, not both`);
   }
   return errors;
 }
