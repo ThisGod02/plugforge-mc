@@ -84,6 +84,8 @@ export async function runCommand(o: RunCommandOptions): Promise<boolean> {
 
 /** `plugforge create`: text request → questions → spec → approval → tests → code → fixes. */
 export async function createCommand(o: CreateCommandOptions): Promise<boolean> {
+  // Fail before the questions, not after the user has answered them and approved a spec.
+  if (o.out && !(await isEmptyDir(o.out))) throw new Error(`output directory is not empty: ${path.resolve(o.out)}`);
   const request = o.request?.trim() || (interactive() ? await ask("Describe the plugin you want: ") : "");
   if (!request) throw new Error('usage: create "<what the plugin should do>"');
   const scriptedAnswers = o.answersFile ? (JSON.parse(await readFile(path.resolve(o.answersFile), "utf8")) as ScriptedAnswers) : undefined;
