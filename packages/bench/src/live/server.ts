@@ -15,8 +15,10 @@ export interface StartServerOptions {
   plugins?: string[];
   memoryMb?: number;
   startTimeoutMs?: number;
-  /** Keep the server folder after stop (for debugging). */
+  /** Keep the server folder after stop (for debugging, or to start again in it). */
   keepDir?: boolean;
+  /** Start in this existing server folder (world and plugin data kept) instead of a new one. */
+  dir?: string;
   log?: Log;
 }
 
@@ -86,7 +88,7 @@ export class TestServer {
   static async start(opts: StartServerOptions): Promise<TestServer> {
     const log = opts.log ?? (() => {});
     const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(3).toString("hex")}`;
-    const dir = path.join(homePaths.servers(), id);
+    const dir = opts.dir ?? path.join(homePaths.servers(), id);
     await mkdir(path.join(dir, "plugins"), { recursive: true });
 
     const [port, rconPort] = [await freePort(), await freePort()];

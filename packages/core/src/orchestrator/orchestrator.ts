@@ -1,6 +1,6 @@
 import { cp, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { CheckResult, Diagnostic } from "@plugforge/bench";
+import { loadScenarios, type CheckResult, type Diagnostic } from "@plugforge/bench";
 import type { Log } from "@plugforge/runtime";
 import { BudgetExceededError, type LlmGateway } from "../llm/gateway.ts";
 import type { PluginSpec } from "../spec/spec.ts";
@@ -8,6 +8,7 @@ import { writeProject } from "../stages/coder.ts";
 import type { StageContext } from "../stages/context.ts";
 import { fixProject } from "../stages/fixer.ts";
 import { reviewCoverage, specGaps, specLanguage } from "../stages/reporter.ts";
+import { writeScenarios } from "../stages/scenariowriter.ts";
 import { reviewTests } from "../stages/testreview.ts";
 import { templateTestPath, testCoverage, writeTests, type CompileTests } from "../stages/testwriter.ts";
 import { scaffoldPlugin } from "../workspace/scaffold.ts";
@@ -16,7 +17,18 @@ import { specConformance } from "./conformance.ts";
 import { deliver, type Delivery } from "./deliver.ts";
 import type { RunLog } from "./runlog.ts";
 
-export type AgentState = "SCAFFOLD" | "TESTS_WRITE" | "CODE_WRITE" | "CHECK" | "FIX" | "TEST_REVIEW" | "REPORT" | "DONE" | "STUCK" | "ERROR";
+export type AgentState =
+  | "SCAFFOLD"
+  | "TESTS_WRITE"
+  | "SCENARIOS_WRITE"
+  | "CODE_WRITE"
+  | "CHECK"
+  | "FIX"
+  | "TEST_REVIEW"
+  | "REPORT"
+  | "DONE"
+  | "STUCK"
+  | "ERROR";
 
 export interface AgentOptions {
   spec: PluginSpec;
@@ -28,6 +40,8 @@ export interface AgentOptions {
   intake?: Record<string, unknown>;
   /** Fixer TEST_DISPUTEs sent to TestReview per run (default 2). */
   maxTestReviews?: number;
+  /** Write live scenarios (L2) next to the tests TestWriter writes; `check` is expected to play them. */
+  liveScenarios?: boolean;
   /** Must not exist or be empty. */
   projectDir: string;
   gateway: LlmGateway;
@@ -68,16 +82,33 @@ function errorsOf(r: CheckResult): Diagnostic[] {
 export function failureSignature(r: CheckResult): string {
   const parts = errorsOf(r).map((d) => `${d.file ?? ""}:${d.line ?? ""}:${d.message}`);
   for (const c of r.test?.cases ?? []) if (c.status === "failed" || c.status === "error") parts.push(`${c.suite}.${c.name}:${c.message ?? ""}`);
+  for (const s of r.live?.scenarios ?? []) {
+    // Step and the first part of the reason: timings and chat tails vary between runs.
+    if (s.status === "failed") parts.push(`${s.id}:${s.steps.find((x) => !x.ok)?.at ?? ""}:${(s.failure ?? "").slice(0, 120)}`);
+  }
   return `${r.failedStage}|${parts.sort().join("|")}`;
 }
 
 /** One line for the Fixer's "earlier attempts" list. */
 function failureSummary(r: CheckResult): string {
+  const failedScenarios = (r.live?.scenarios ?? []).filter((s) => s.status === "failed");
+  if (r.failedStage === "live" && failedScenarios.length) {
+    return `${failedScenarios.length} live scenario(s) failed, e.g. ${failedScenarios[0]!.id}: ${(failedScenarios[0]!.failure ?? "").slice(0, 200)}`;
+  }
   const failedTests = (r.test?.cases ?? []).filter((c) => c.status === "failed" || c.status === "error");
   if (failedTests.length) return `${failedTests.length} test(s) failed, e.g. ${failedTests[0]!.name}: ${(failedTests[0]!.message ?? "").slice(0, 160)}`;
   const errs = errorsOf(r);
   const first = errs[0];
   return `${r.failedStage} failed with ${errs.length} error(s), e.g. ${first?.file ?? ""}${first?.line ? `:${first.line}` : ""} ${first?.message ?? ""}`.trim();
+}
+
+/** Adds live scenarios to the per-criterion coverage, as "scenario <id>". */
+async function withScenarios(coverage: Record<string, string[]> | undefined, projectDir: string): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = Object.fromEntries(Object.entries(coverage ?? {}).map(([k, v]) => [k, [...v]]));
+  for (const sc of (await loadScenarios(projectDir)).scenarios) {
+    for (const id of sc.covers) if (out[id]) out[id].push(`scenario ${sc.id}`);
+  }
+  return out;
 }
 
 async function installTests(testsDir: string, projectDir: string): Promise<number> {
@@ -150,13 +181,25 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
       log(`installed ${await installTests(o.testsDir, projectDir)} ready-made test file(s)`);
       const tests = await readTree(projectDir, "src/test");
       tests.delete(templateTestPath(spec));
-      const c = testCoverage(spec, tests);
-      coverage = c.byCriterion;
-      if (c.missing.length) log(`warning: no tests for ${c.missing.join(", ")}`);
+      coverage = await withScenarios(testCoverage(spec, tests).byCriterion, projectDir);
+      const missing = Object.entries(coverage).filter(([, t]) => t.length === 0).map(([id]) => id);
+      if (missing.length) log(`warning: no tests or scenarios for ${missing.join(", ")}`);
     } else {
       if (!o.compileTests) throw new Error("compileTests is required when the agent writes the tests");
       await enter("TESTS_WRITE");
       coverage = (await writeTests(ctx, o.compileTests)).byCriterion;
+      if (o.liveScenarios) {
+        await enter("SCENARIOS_WRITE");
+        try {
+          await writeScenarios(ctx);
+        } catch (err) {
+          if (err instanceof BudgetExceededError) throw err;
+          // Live tests add confidence; without usable scenarios the run still has L0+L1.
+          log(`warning: ${(err as Error).message.split("\n")[0]}; continuing without live tests`);
+          await runLog.event("SCENARIOS_SKIPPED", { reason: (err as Error).message });
+        }
+        coverage = await withScenarios(coverage, projectDir);
+      }
     }
     await runLog.event("TESTS_LOCKED", { coverage });
     let locked = await lockedFingerprint(projectDir);
@@ -183,6 +226,8 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
 
       if (result.ok) {
         const t = result.test;
+        const l = result.live;
+        const green = `L0+L1${l ? "+L2" : ""} green, ${t?.passed}/${t?.total} tests${l ? `, ${l.passed}/${l.total} live scenarios` : ""}`;
         await enter("REPORT");
         const untested = specGaps(spec, specLanguage(spec));
         try {
@@ -194,7 +239,7 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
         }
         log(`Reporter: ${untested.length} thing(s) not covered by tests`);
         const delivery = await deliver(projectDir, spec, result, { paperVersion: o.minecraftVersion, coverage, untested });
-        return await finish({ status: "done", reason: `L0+L1 green, ${t?.passed}/${t?.total} tests`, fixIterations, check: result, disputes, delivery });
+        return await finish({ status: "done", reason: green, fixIterations, check: result, disputes, delivery });
       }
       log(`check failed: ${failureSummary(result)}`);
       if (fixIterations >= maxFix) return await finish({ status: "stuck", reason: `fix limit of ${maxFix} iterations reached`, fixIterations, check: result, disputes });

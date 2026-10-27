@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { CheckResult } from "@plugforge/bench";
+import { loadScenarios, type CheckResult } from "@plugforge/bench";
 import type { PluginSpec } from "../spec/spec.ts";
 import { specGaps, specLanguage, type UntestedItem } from "../stages/reporter.ts";
 
@@ -20,6 +20,10 @@ interface ReadmeFacts {
   tests: { passed: number; total: number };
   coverage?: Record<string, string[]>;
   untested: UntestedItem[];
+  /** Scenarios bots played on a real server; undefined when L2 did not run. */
+  live?: { id: string; covers: string[]; description?: string }[];
+  /** Scenario files exist but were not played. */
+  liveNotRun?: number;
 }
 
 /** Reporter output kept with the project, so `check` (no model) can still write the section. */
@@ -46,6 +50,8 @@ export function renderReadme(f: ReadmeFacts): string {
         untestedHead: ["Риск", "Что", "Где"],
         risk: { high: "высокий", medium: "средний", low: "низкий" },
         untestedNone: "Аудит не нашёл поведения, которое не покрыто тестами.",
+        liveText: (n: number) => `Живые тесты: боты сыграли ${n} сценари${n === 1 ? "й" : n < 5 ? "я" : "ев"} на настоящем сервере Paper, все прошли:`,
+        liveNotRun: (n: number) => `Живые тесты (${n} сценари${n === 1 ? "й" : n < 5 ? "я" : "ев"} в \`src/test/scenarios\`) не запускались — плагин в игре не проверен.`,
         install: "Установка",
         installText: `1. Скопируйте \`dist/${f.jarName}\` в папку \`plugins/\` сервера.\n2. Перезапустите сервер (не используйте /reload).\n3. ${s.config?.length ? "При первом запуске появится `plugins/" + s.name + "/config.yml` — настройки ниже." : "Настраивать ничего не нужно."}`,
         requires: `Требуется: Paper ${f.paperVersion} (проверено на нём), Java 21.`,
@@ -69,6 +75,8 @@ export function renderReadme(f: ReadmeFacts): string {
         untestedHead: ["Risk", "What", "Where"],
         risk: { high: "high", medium: "medium", low: "low" },
         untestedNone: "The audit found no behaviour left untested.",
+        liveText: (n: number) => `Live tests: bots played ${n} scenario${n === 1 ? "" : "s"} on a real Paper server, all passed:`,
+        liveNotRun: (n: number) => `Live tests (${n} scenario${n === 1 ? "" : "s"} in \`src/test/scenarios\`) did not run: the plugin was not checked in the game.`,
         install: "Installation",
         installText: `1. Copy \`dist/${f.jarName}\` into the server's \`plugins/\` folder.\n2. Restart the server (do not use /reload).\n3. ${s.config?.length ? "The first start creates `plugins/" + s.name + "/config.yml`; settings are below." : "Nothing to configure."}`,
         requires: `Requires Paper ${f.paperVersion} (tested on it) and Java 21.`,
@@ -103,6 +111,12 @@ export function renderReadme(f: ReadmeFacts): string {
   }
   out.push(`## ${t.checked}`, "", t.checkedText, "");
   for (const a of s.acceptance) out.push(`- **${a.id}** ${a.text}${f.coverage?.[a.id]?.length ? ` — \`${f.coverage[a.id]!.join("`, `")}\`` : ""}`);
+  if (f.live?.length) {
+    out.push("", t.liveText(f.live.length), "");
+    for (const sc of f.live) out.push(`- \`${sc.id}\` (${sc.covers.join(", ")})${sc.description ? ` — ${sc.description}` : ""}`);
+  } else if (f.liveNotRun) {
+    out.push("", t.liveNotRun(f.liveNotRun));
+  }
   out.push("", `## ${t.untested}`, "");
   if (f.untested.length) {
     const order = { high: 0, medium: 1, low: 2 };
@@ -155,7 +169,12 @@ export async function deliver(
   // A README without the mark was written or edited by the user; leave it alone.
   const existing = existsSync(readme) ? await readFile(readme, "utf8") : undefined;
   if (existing === undefined || existing.startsWith(GENERATED_MARK)) {
-    await writeFile(readme, renderReadme({ spec, jarName, paperVersion: opts.paperVersion, tests, coverage: opts.coverage, untested }));
+    const scenarios = await loadScenarios(projectDir);
+    const live = check.live
+      ? check.live.scenarios.map((r) => ({ id: r.id, covers: r.covers, description: scenarios.scenarios.find((x) => x.id === r.id)?.description }))
+      : undefined;
+    const liveNotRun = check.live ? undefined : scenarios.scenarios.length || undefined;
+    await writeFile(readme, renderReadme({ spec, jarName, paperVersion: opts.paperVersion, tests, coverage: opts.coverage, untested, live, liveNotRun }));
   }
   if ((await readdir(dist)).length !== 1) throw new Error(`unexpected files in ${dist}`);
   return { jar, readme, untested };

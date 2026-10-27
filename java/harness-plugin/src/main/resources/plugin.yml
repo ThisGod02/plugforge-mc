@@ -1,0 +1,9 @@
+name: PlugForgeHarness
+version: '1.0.0'
+main: dev.plugforge.harness.HarnessPlugin
+api-version: '{{pluginApiVersion}}'
+description: "PlugForge test-bench helper (console-only command pfh)"
+commands:
+  pfh:
+    description: PlugForge harness (console only)
+    usage: /pfh ping | perm <player> <node> <true|false> | state <player>

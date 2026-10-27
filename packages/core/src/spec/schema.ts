@@ -64,6 +64,35 @@ export const specSchema = {
         },
       },
     },
+    guis: {
+      type: "array",
+      description: "Inventory menus: exact titles and button names, so code and live tests agree before the code exists",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "title", "rows", "items"],
+        properties: {
+          id: { type: "string", pattern: "^[a-z0-9_-]+$" },
+          title: { type: "string", minLength: 1, description: "Exact plain-text title; may contain %placeholders%" },
+          rows: { type: "integer", minimum: 1, maximum: 6 },
+          openedBy: { type: "string", description: "Command or action that opens it, e.g. /shop" },
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name", "material", "action"],
+              properties: {
+                name: { type: "string", minLength: 1, description: "Exact plain-text display name; may contain %placeholders%" },
+                material: { type: "string", pattern: "^[A-Z0-9_]+$", description: "Bukkit Material, e.g. BREAD" },
+                slot: { type: "integer", minimum: 0, maximum: 53 },
+                action: { type: "string", minLength: 1, description: "What a click does" },
+              },
+            },
+          },
+        },
+      },
+    },
     messages: {
       type: "object",
       description: "Every text the plugin sends, by camelCase key. Plain text; placeholders like %player% are allowed",

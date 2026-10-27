@@ -29,6 +29,7 @@ export const defaultLlmConfig: LlmConfig = {
     clarify: "flash",
     spec: "flash-think",
     tests: "flash-think",
+    scenarios: "flash-think",
     test_review: "flash-think",
     plan: "flash",
     code: "flash",

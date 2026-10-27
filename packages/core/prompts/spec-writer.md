@@ -16,6 +16,7 @@ Rules:
 - Put every text the plugin sends into `messages` (plain text, no colour codes; use placeholders like `%player%`, `%amount%`). Use the user's language for these texts.
 - Each command has a `usage`. Use `permission` on a command only if Bukkit's default "no permission" text is acceptable; when the plugin must answer with its own `noPermission` message, put the node in the command's `checksPermission` instead (the code checks it) and list it in `permissions`.
 - Every value server owners might tune goes to `config` with a default.
+- Every inventory menu goes to `guis`: exact title, rows, and each clickable item with its exact name, Bukkit material and what the click does. Live tests find menus and buttons by these names, before any code exists.
 - `acceptance`: 3-12 criteria with ids AC1, AC2, ... Each one is a single observable behaviour that a MockBukkit unit test can check: "who does what" → "exact result" (message key and text, config value, inventory/health/location/gamemode change, permission outcome). Cover the main success path of every command and the important failure paths (no permission, wrong arguments, unknown/offline player, console where it matters).
 - If the request needs something the test bench cannot provide yet (Vault economy, databases, web APIs, custom textures, GUIs driven by clicks are fine), make the simplest faithful version and say what you simplified in `assumptions`.
 - `assumptions`: every default you chose that the user did not state, in the user's language, one short sentence each.

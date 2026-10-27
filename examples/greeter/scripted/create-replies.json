@@ -1,5 +1,5 @@
 {
-  "description": "Canned LLM answers for `plugforge create \"<greeter request>\" --answers examples/greeter/scripted/answers.json --yes --scripted ...`. Covers two clarify rounds, a spec, tests that do not compile at first, the M2 code/fix path, and a TEST_DISPUTE that TestReview rejects.",
+  "description": "Canned LLM answers for `plugforge create \"<greeter request>\" --answers examples/greeter/scripted/answers.json --yes --scripted ...`. Covers two clarify rounds, a live scenario,, a spec, tests that do not compile at first, the M2 code/fix path, and a TEST_DISPUTE that TestReview rejects.",
   "replies": [
     {
       "route": "clarify",
@@ -20,6 +20,10 @@
     {
       "route": "tests",
       "content": "<<<<<<< SEARCH src/test/java/dev/plugforge/greeter/GreeterAcceptanceTest.java\nimport org.mockbukkit.mockbukkit.ServerMock;\n=======\nimport org.mockbukkit.mockbukkit.ServerMock;\nimport org.mockbukkit.mockbukkit.entity.PlayerMock;\n>>>>>>> REPLACE\n"
+    },
+    {
+      "route": "scenarios",
+      "content": "FILE: src/test/scenarios/greet-live.yml\n```yaml\nid: greet-live\ncovers: [AC2, AC3]\ndescription: Two real players greet themselves and each other\nplayers: [alice, bob]\nsteps:\n  - as: alice\n    command: /greet\n  - as: alice\n    expect_chat: \"Hello, alice!\"\n  - as: alice\n    command: /greet bob\n  - as: bob\n    expect_chat: \"Hello, bob!\"\n  - as: alice\n    expect_chat: \"Greeted bob.\"\n```\n"
     },
     {
       "route": "plan",

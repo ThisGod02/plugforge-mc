@@ -1,0 +1,11 @@
+{
+  "description": "Same plugin with a click handler that never fires (compares the title to \"Menu\"): L1 stays green, L2 must fail.",
+  "extends": "live-menu-ok",
+  "expect": {
+    "ok": false,
+    "failedStage": "live",
+    "minTests": 3,
+    "liveFailedScenario": "click-gives-diamond",
+    "liveFailureContains": "Вы получили алмаз"
+  }
+}

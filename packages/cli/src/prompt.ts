@@ -65,6 +65,13 @@ export function renderSpec(spec: PluginSpec): string {
     out.push("", "Config (config.yml):");
     for (const c of spec.config) out.push(`  ${c.key}: ${JSON.stringify(c.default)}  (${c.type})${c.description ? `  — ${c.description}` : ""}`);
   }
+  if (spec.guis?.length) {
+    out.push("", "Menus:");
+    for (const g of spec.guis) {
+      out.push(`  "${g.title}" (${g.rows} rows${g.openedBy ? `, opened by ${g.openedBy}` : ""})`);
+      for (const i of g.items) out.push(`    [${i.slot ?? "?"}] ${i.name} (${i.material}) — ${i.action}`);
+    }
+  }
   const messages = Object.entries(spec.messages ?? {});
   if (messages.length) {
     out.push("", "Messages:");

@@ -1,0 +1,29 @@
+{
+  "description": "Canned answers for `plugforge run examples/menudemo/spec.json --scripted examples/menudemo/scripted/replies.json`: the Coder ships a click listener that compares the title with \"Menu\". Unit tests (L1) pass; the live scenarios (L2) must catch it and the Fixer must fix it.",
+  "replies": [
+    {
+      "route": "plan",
+      "contentFile": "plan.json"
+    },
+    {
+      "route": "code",
+      "contentFile": "MenuDemoPlugin.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "config.yml.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "plugin.yml.md"
+    },
+    {
+      "route": "fix",
+      "content": "The click listener compares the menu title with \"Menu\", but the menu is titled \"Меню\", so clicks are ignored and not cancelled.\n\n<<<<<<< SEARCH src/main/java/dev/plugforge/menudemo/MenuDemoPlugin.java\n        if (!PlainTextComponentSerializer.plainText().serialize(event.getView().title()).equals(CLICK_TITLE)) {\n=======\n        if (!PlainTextComponentSerializer.plainText().serialize(event.getView().title()).equals(TITLE)) {\n>>>>>>> REPLACE\n"
+    },
+    {
+      "route": "report",
+      "content": "{\"untested\":[{\"what\":\"Несколько игроков одновременно в меню не проверялись\",\"where\":\"MenuDemoPlugin.java\",\"risk\":\"low\"}]}"
+    }
+  ]
+}

@@ -21,12 +21,22 @@ export function editablePath(raw: string): string {
 }
 
 const TEST_SOURCE = /^src\/test\/java\/[A-Za-z0-9_./-]+\.java$/;
+const SCENARIO = /^src\/test\/scenarios\/[a-z0-9][a-z0-9_-]*\.ya?ml$/;
 
-/** Path policy for TestWriter and TestReview: Java test sources only. */
+/** Path policy for TestReview: Java test sources and live scenarios. */
 export function testPath(raw: string): string {
   const rel = raw.trim().replaceAll("\\", "/").replace(/^\.\//, "");
   if (path.isAbsolute(rel) || rel.split("/").includes("..")) throw new Error(`path '${raw}' leaves the project`);
-  if (!TEST_SOURCE.test(rel)) throw new Error(`path '${rel}' is not a Java test source under src/test/java`);
+  if (!TEST_SOURCE.test(rel) && !SCENARIO.test(rel)) {
+    throw new Error(`path '${rel}' is neither a Java test under src/test/java nor a scenario src/test/scenarios/<id>.yml`);
+  }
+  return rel;
+}
+
+/** Path policy for ScenarioWriter: scenario files only. */
+export function scenarioPath(raw: string): string {
+  const rel = testPath(raw);
+  if (!SCENARIO.test(rel)) throw new Error(`path '${rel}' is not a scenario file src/test/scenarios/<id>.yml`);
   return rel;
 }
 

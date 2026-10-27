@@ -1,0 +1,18 @@
+```yaml
+name: MenuDemo
+version: '${version}'
+main: dev.plugforge.menudemo.MenuDemoPlugin
+api-version: '1.21'
+description: "Menu with a diamond button"
+commands:
+  menu:
+    description: Opens the menu
+    usage: /menu
+  claims:
+    description: Shows how many diamonds you claimed
+    usage: /claims
+permissions:
+  menudemo.use:
+    description: Use /menu
+    default: true
+```

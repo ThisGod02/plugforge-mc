@@ -1,0 +1,10 @@
+id: config-reward-amount
+covers: [extra]
+description: reward-amount from config.yml decides how many diamonds a click gives
+players: [alice]
+config:
+  reward-amount: 3
+steps:
+  - command: /menu
+  - click_item: "Получить алмаз"
+  - expect_state: { has_item: { item: diamond, count: 3 } }

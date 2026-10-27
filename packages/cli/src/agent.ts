@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { checkProject, compileTests, formatCheckResult } from "@plugforge/bench";
+import { checkProject, compileTests, formatCheckResult, liveStage } from "@plugforge/bench";
 import {
   LlmGateway,
   RunLog,
@@ -22,16 +22,19 @@ import {
   type LlmContext,
   type PluginSpec,
 } from "@plugforge/core";
-import type { GradleInstall, JavaRuntime, Log } from "@plugforge/runtime";
+import type { GradleInstall, JavaRuntime, Log, PaperInstall } from "@plugforge/runtime";
 import { answerQuestions, ask, askApproval, interactive, renderSpec, type ScriptedAnswers } from "./prompt.ts";
 
 /** Bench and logging shared by the agent commands. */
 export interface AgentEnv {
   java: JavaRuntime;
   gradle: GradleInstall;
+  paper: PaperInstall;
   paperApi: string;
   pluginApiVersion: string;
   minecraftVersion: string;
+  /** Write and play live scenarios (L2); off with --skip-live. */
+  live: boolean;
   log: Log;
 }
 
@@ -164,6 +167,18 @@ async function execute(
   const projectDir = opts.out ? path.resolve(opts.out) : defaultProjectDir(spec.name);
   if (!(await isEmptyDir(projectDir))) throw new Error(`output directory is not empty: ${projectDir}`);
   const bench = { java: env.java, gradle: env.gradle, log: env.log };
+  let skipNoted = false;
+  // L0 + L1, then L2 on a real server when the unit tests are green and the project has scenarios.
+  const check = async (dir: string) => {
+    const l1 = await checkProject({ ...bench, projectDir: dir, pluginApiVersion: env.pluginApiVersion });
+    if (!env.live) return l1;
+    const outcome = await liveStage(l1, { ...env, projectDir: dir, criteria: spec.acceptance.map((a) => a.id) });
+    if (outcome.skipped && !skipNoted) {
+      skipNoted = true;
+      env.log(`warning: live tests skipped: ${outcome.skipped}`);
+    }
+    return outcome.result;
+  };
 
   const result = await runAgent({
     spec,
@@ -177,8 +192,9 @@ async function execute(
     minecraftVersion: env.minecraftVersion,
     maxFixIterations: opts.maxFix,
     intake: opts.intake,
-    check: (dir) => checkProject({ ...bench, projectDir: dir, pluginApiVersion: env.pluginApiVersion }),
+    check,
     compileTests: (dir) => compileTests({ ...bench, projectDir: dir }),
+    liveScenarios: env.live,
   });
 
   if (result.check) console.log(`\n${formatCheckResult(result.check)}`);

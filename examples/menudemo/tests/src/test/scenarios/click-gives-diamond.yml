@@ -1,0 +1,11 @@
+id: click-gives-diamond
+covers: [AC1, AC2]
+description: Clicking the button in the menu gives a diamond and closes the menu
+players: [alice]
+steps:
+  - command: /menu
+  - expect_gui: { title_contains: "Меню", has_item: "Получить алмаз" }
+  - click_item: "Получить алмаз"
+  - expect_chat: "Вы получили алмаз"
+  - expect_no_gui: true
+  - expect_state: { has_item: { item: diamond, count: 1 }, lacks_item: emerald }

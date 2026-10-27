@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { TestServer, checkProject, connectBot, formatCheckResult } from "@plugforge/bench";
+import { TestServer, checkProject, connectBot, formatCheckResult, liveStage } from "@plugforge/bench";
 import {
   LlmGateway,
   deliver,
@@ -49,6 +49,8 @@ Commands:
                         (--out <dir>, --tests <dir> [default: tests/ next to the spec, else TestWriter],
                          --max-fix <n> [8], --scripted <replies.json>)
   key set <name>        Store an API key, e.g. "key set deepseek" (encrypted with Windows DPAPI)
+                        create and run play live scenarios on a real Paper server after the unit
+                        tests pass; --skip-live turns that off
   llm ping [route]      Send one tiny request through the LLM gateway (routes: plan, code, fix, fix_escalation)
 
 Options:
@@ -75,10 +77,10 @@ async function newProject(dir: string | undefined, opts: { name?: string; packag
   log(`created ${opts.name} in ${target}`);
 }
 
-async function check(dir: string | undefined, opts: { json: boolean; verbose: boolean; audit: boolean }) {
+async function check(dir: string | undefined, opts: { json: boolean; verbose: boolean; audit: boolean; live: boolean }) {
   if (!dir) throw new Error("usage: check <dir>");
-  const { versions, java, gradle } = await setup();
-  const result = await checkProject({
+  const { versions, java, gradle, paper } = await setup();
+  const l1 = await checkProject({
     projectDir: path.resolve(dir),
     java,
     gradle,
@@ -86,6 +88,20 @@ async function check(dir: string | undefined, opts: { json: boolean; verbose: bo
     log,
     verbose: opts.verbose,
   });
+  const live = opts.live
+    ? await liveStage(l1, {
+        projectDir: path.resolve(dir),
+        java,
+        gradle,
+        paper,
+        paperApi: versions.paperApi,
+        pluginApiVersion: versions.pluginApiVersion,
+        minecraftVersion: versions.minecraft,
+        log,
+      })
+    : { result: l1 };
+  if (live.skipped) log(`warning: live tests skipped: ${live.skipped}`);
+  const result = live.result;
   console.log(opts.json ? JSON.stringify(result, null, 2) : formatCheckResult(result));
   // Agent-made projects carry spec.json: a green check refreshes dist/ and README.md.
   const specFile = path.join(path.resolve(dir), "spec.json");
@@ -181,6 +197,7 @@ async function main() {
       "max-fix": { type: "string" },
       answers: { type: "string" },
       yes: { type: "boolean", short: "y", default: false },
+      "skip-live": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -200,13 +217,16 @@ async function main() {
       await newProject(positionals[1], { name: values.name, packageName: values.package, description: values.description });
       break;
     case "check":
-      await check(positionals[1], { json: values.json!, verbose: values.verbose!, audit: values.audit! });
+      await check(positionals[1], { json: values.json!, verbose: values.verbose!, audit: values.audit!, live: !values["skip-live"] });
       break;
     case "selftest": {
-      const { versions, java, gradle } = await setup();
+      const { versions, java, gradle, paper } = await setup();
       const ok = await runSelftest({
         java,
         gradle,
+        paper,
+        paperApi: versions.paperApi,
+        minecraftVersion: versions.minecraft,
         pluginApiVersion: versions.pluginApiVersion,
         log,
         only: values.only,
@@ -217,7 +237,7 @@ async function main() {
       break;
     }
     case "create": {
-      const { versions, java, gradle } = await setup();
+      const { versions, java, gradle, paper } = await setup();
       const ok = await createCommand({
         request: positionals.slice(1).join(" "),
         out: values.out,
@@ -230,6 +250,8 @@ async function main() {
         paperApi: versions.paperApi,
         pluginApiVersion: versions.pluginApiVersion,
         minecraftVersion: versions.minecraft,
+        paper,
+        live: !values["skip-live"],
         log,
       });
       if (!ok) process.exitCode = 1;
@@ -238,7 +260,7 @@ async function main() {
     case "run": {
       if (!positionals[1]) throw new Error("usage: run <spec.json> [--out <dir>] [--tests <dir>] [--max-fix <n>] [--scripted <file>]");
       const maxFix = parseMaxFix(values["max-fix"]);
-      const { versions, java, gradle } = await setup();
+      const { versions, java, gradle, paper } = await setup();
       const ok = await runCommand({
         specFile: positionals[1],
         out: values.out,
@@ -250,6 +272,8 @@ async function main() {
         paperApi: versions.paperApi,
         pluginApiVersion: versions.pluginApiVersion,
         minecraftVersion: versions.minecraft,
+        paper,
+        live: !values["skip-live"],
         log,
       });
       if (!ok) process.exitCode = 1;

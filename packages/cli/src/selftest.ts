@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { cp, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { checkProject, fixturesDir, formatCheckResult, type CheckResult, type CheckStage } from "@plugforge/bench";
+import { checkProject, fixturesDir, formatCheckResult, liveStage, loadScenarios, type CheckResult, type CheckStage } from "@plugforge/bench";
 import { scaffoldPlugin, type ScaffoldOptions } from "@plugforge/core";
-import { plugforgeHome, type GradleInstall, type JavaRuntime, type Log } from "@plugforge/runtime";
+import { plugforgeHome, type GradleInstall, type JavaRuntime, type Log, type PaperInstall } from "@plugforge/runtime";
 
 interface FixtureExpect {
   ok: boolean;
@@ -16,6 +16,11 @@ interface FixtureExpect {
   failedTest?: string;
   /** Guards against a test failing for an unrelated reason (e.g. plugin failed to load). */
   failedTestMessageContains?: string;
+  /** L2: number of scenarios that must pass. */
+  livePassed?: number;
+  liveFailedScenario?: string;
+  /** Guards against a scenario failing for an unrelated reason. */
+  liveFailureContains?: string;
 }
 
 interface Fixture {
@@ -66,12 +71,32 @@ function verify(r: CheckResult, e: FixtureExpect): string[] {
   if (e.minTests !== undefined && (r.test?.total ?? 0) < e.minTests) {
     problems.push(`expected at least ${e.minTests} tests, got ${r.test?.total ?? 0}`);
   }
+  if (e.livePassed !== undefined && (r.live?.passed ?? 0) !== e.livePassed) {
+    problems.push(`expected ${e.livePassed} live scenarios to pass, got ${r.live ? r.live.passed : "no live run"}`);
+  }
+  if (e.liveFailedScenario) {
+    const s = r.live?.scenarios.find((x) => x.id === e.liveFailedScenario && x.status === "failed");
+    if (!s) problems.push(`scenario ${e.liveFailedScenario} was not reported as failed`);
+    else if (e.liveFailureContains && !s.failure?.includes(e.liveFailureContains)) problems.push(`scenario ${e.liveFailedScenario} failed for another reason: ${s.failure}`);
+  }
   return problems;
+}
+
+/** Runs the fixture's scenarios when L1 is green, the same way the agent's check does. */
+async function withLive(result: CheckResult, dir: string, opts: SelftestOptions): Promise<CheckResult> {
+  const { scenarios, errors } = await loadScenarios(dir);
+  if (errors.size) throw new Error(`invalid scenarios: ${[...errors].map(([f, e]) => `${f}: ${e.join("; ")}`).join(" | ")}`);
+  const outcome = await liveStage(result, { ...opts, projectDir: dir });
+  if (scenarios.length && result.ok && outcome.skipped) throw new Error(`live scenarios did not run: ${outcome.skipped}`);
+  return outcome.result;
 }
 
 export interface SelftestOptions {
   java: JavaRuntime;
   gradle: GradleInstall;
+  paper: PaperInstall;
+  paperApi: string;
+  minecraftVersion: string;
   pluginApiVersion: string;
   log: Log;
   only?: string;
@@ -94,7 +119,7 @@ export async function runSelftest(opts: SelftestOptions): Promise<boolean> {
     opts.log(`--- fixture ${name}: ${fixture.description}`);
     try {
       await materialize(fixture, dir);
-      const result = await checkProject({
+      const l1 = await checkProject({
         projectDir: dir,
         java: opts.java,
         gradle: opts.gradle,
@@ -102,6 +127,7 @@ export async function runSelftest(opts: SelftestOptions): Promise<boolean> {
         log: opts.log,
         verbose: opts.verbose,
       });
+      const result = await withLive(l1, dir, opts);
       console.log(formatCheckResult(result));
       const problems = verify(result, fixture.expect);
       summary.push(problems.length ? `FAIL ${name}\n${problems.map((p) => `       - ${p}`).join("\n")}` : `PASS ${name}`);

@@ -35,6 +35,19 @@ export function formatCheckResult(r: CheckResult): string {
     if (trace) out.push(indent(trace));
   }
 
+  const l = r.live;
+  if (l) {
+    out.push(stageLine("LIVE", l, `  ${l.passed}/${l.total} scenarios passed on a real Paper server`));
+    for (const s of l.scenarios) {
+      if (s.status === "passed") continue;
+      out.push(`  FAIL scenario ${s.id} (${s.file}, covers ${s.covers.join(", ")})`);
+      for (const st of s.steps) out.push(`      ${st.ok ? "ok  " : "FAIL"} ${st.at}: ${st.text}`);
+      if (s.failure) out.push(indent(s.failure, "      → "));
+      if (s.context) out.push(indent(s.context));
+      if (s.serverErrors.length) out.push("      server log errors:", indent(s.serverErrors.join("\n"), "        "));
+    }
+  }
+
   out.push(r.ok ? "RESULT   OK" : `RESULT   FAILED at ${r.failedStage}`);
   return out.join("\n");
 }

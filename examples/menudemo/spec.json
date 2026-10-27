@@ -1,0 +1,34 @@
+{
+  "name": "MenuDemo",
+  "package": "dev.plugforge.menudemo",
+  "mainClass": "MenuDemoPlugin",
+  "description": "Меню с кнопкой, которая выдаёт алмазы; счётчик полученного сохраняется между перезапусками.",
+  "commands": [
+    { "name": "menu", "description": "Открыть меню", "usage": "/menu", "checksPermission": "menudemo.use", "playerOnly": true },
+    { "name": "claims", "description": "Сколько алмазов вы получили", "usage": "/claims", "playerOnly": true }
+  ],
+  "permissions": [{ "node": "menudemo.use", "description": "Открывать /menu", "default": "true" }],
+  "config": [{ "key": "reward-amount", "type": "int", "default": 1, "description": "Сколько алмазов даёт одна кнопка" }],
+  "guis": [
+    {
+      "id": "main",
+      "title": "Меню",
+      "rows": 1,
+      "openedBy": "/menu",
+      "items": [{ "name": "Получить алмаз", "material": "EMERALD", "slot": 4, "action": "выдать reward-amount алмазов, сообщение claimed, +1 к счётчику, закрыть меню" }]
+    }
+  ],
+  "messages": {
+    "claimed": "Вы получили алмаз",
+    "claims": "Получено: %count%",
+    "noPermission": "Нет доступа",
+    "playerOnly": "Только для игроков"
+  },
+  "acceptance": [
+    { "id": "AC1", "text": "/menu открывает меню «Меню» на 9 слотов с изумрудом «Получить алмаз»" },
+    { "id": "AC2", "text": "Клик по «Получить алмаз» выдаёт 1 алмаз, пишет claimed и закрывает меню; изумруд забрать нельзя" },
+    { "id": "AC3", "text": "/claims показывает «Получено: N»; счётчик сохраняется в claims.yml и переживает перезапуск сервера" },
+    { "id": "AC4", "text": "reward-amount из config.yml задаёт число алмазов за клик" },
+    { "id": "AC5", "text": "Без права menudemo.use /menu отвечает noPermission и меню не открывается" }
+  ]
+}

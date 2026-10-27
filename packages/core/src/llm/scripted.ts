@@ -28,11 +28,13 @@ export class ScriptedModel implements ChatModel {
   }
 
   async complete(req: ChatRequest): Promise<ChatResponse> {
-    const reply = this.replies[this.next++];
-    if (!reply) throw new Error(`scripted model has no reply #${this.next} (asked for ${req.route})`);
+    const reply = this.replies[this.next];
+    if (!reply) throw new Error(`scripted model has no reply #${this.next + 1} (asked for ${req.route})`);
+    // A mismatch leaves the reply queued, so a stage that tolerates failure does not shift the script.
     if (req.route && reply.route !== req.route) {
-      throw new Error(`scripted reply #${this.next} is for '${reply.route}', but the agent asked for '${req.route}'`);
+      throw new Error(`scripted reply #${this.next + 1} is for '${reply.route}', but the agent asked for '${req.route}'`);
     }
+    this.next++;
     const content = reply.contentFile ? await readFile(path.join(this.baseDir, reply.contentFile), "utf8") : (reply.content ?? "");
     const chars = req.messages.reduce((n, m) => n + m.content.length, 0);
     // Rough token estimate so cost/budget code paths still run.

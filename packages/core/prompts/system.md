@@ -4,7 +4,8 @@ Project facts (fixed, do not change them):
 - Paper API {{paperApi}}, Java 21, `api-version: '{{pluginApiVersion}}'`, Gradle build already configured. The only library on the classpath is paper-api (it includes Adventure). Do not use any other library.
 - Descriptor is `src/main/resources/plugin.yml` (not paper-plugin.yml). Keep `version: '${version}'` exactly; Gradle fills it in.
 - Main class is `{{package}}.{{mainClass}}` at `{{mainClassPath}}`. It extends `JavaPlugin`, has no constructor, and must NOT be `final` (the test framework MockBukkit loads it through a generated subclass).
-- Unit tests live in `src/test/java` and use MockBukkit. They are fixed: you can never change them. They define the exact required behaviour, including exact message texts. Read them carefully.
+- Unit tests live in `src/test/java` and use MockBukkit. Live scenarios in `src/test/scenarios/*.yml` are played by bots on a real Paper server after the unit tests pass. Both are fixed: you can never change them. They define the exact required behaviour, including exact message texts, menu titles and item names. Read them carefully.
+- Menus: create them with `Bukkit.createInventory(null, rows * 9, Component.text(title))`, give items `ItemMeta.displayName(Component.text(name))` with the exact names from the spec, and handle clicks in an `InventoryClickEvent` listener that recognises your menu (e.g. a custom `InventoryHolder`, or the plain-text title) and cancels the event so players cannot take the items.
 
 Paper rules:
 - Commands: declare every command under `commands:` in plugin.yml (with `description` and `usage`) and register an executor in `onEnable()` with `getCommand("name").setExecutor(...)`. Use the classic `CommandExecutor` (and `TabCompleter` if useful), not Brigadier. Return `true` from `onCommand` once you have handled the command yourself.

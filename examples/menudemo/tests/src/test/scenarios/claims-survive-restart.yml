@@ -1,0 +1,11 @@
+id: claims-survive-restart
+covers: [AC3]
+description: The claim counter is saved and survives a server restart
+players: [alice]
+steps:
+  - command: /menu
+  - click_item: "Получить алмаз"
+  - expect_chat: "Вы получили алмаз"
+  - restart: true
+  - command: /claims
+  - expect_chat: "Получено: 1"

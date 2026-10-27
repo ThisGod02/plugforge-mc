@@ -31,7 +31,15 @@ export interface AcceptanceCriterion {
   text: string;
 }
 
-/** Plugin specification (PLAN.md §5), validated by spec/schema.ts. Covers commands, permissions, config and messages. */
+export interface SpecGui {
+  id: string;
+  title: string;
+  rows: number;
+  openedBy?: string;
+  items: { name: string; material: string; slot?: number; action: string }[];
+}
+
+/** Plugin specification (PLAN.md §5), validated by spec/schema.ts. Covers commands, permissions, config, menus and messages. */
 export interface PluginSpec {
   name: string;
   package: string;
@@ -40,6 +48,7 @@ export interface PluginSpec {
   commands: SpecCommand[];
   permissions?: SpecPermission[];
   config?: SpecConfigKey[];
+  guis?: SpecGui[];
   /** Exact texts the plugin sends, by key. */
   messages?: Record<string, string>;
   acceptance: AcceptanceCriterion[];

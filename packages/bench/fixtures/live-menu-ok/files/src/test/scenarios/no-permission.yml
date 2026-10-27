@@ -1,0 +1,17 @@
+id: no-permission
+covers: [extra]
+description: Without menudemo.use the menu does not open, and other players are unaffected
+players: [alice, bob]
+setup:
+  - perm: { player: bob, node: menudemo.use, value: false }
+steps:
+  - as: bob
+    command: /menu
+  - as: bob
+    expect_chat: "Нет доступа"
+  - as: bob
+    expect_no_gui: true
+  - as: alice
+    command: /menu
+  - as: alice
+    expect_gui: "Меню"

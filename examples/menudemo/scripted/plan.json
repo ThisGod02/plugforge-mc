@@ -1,0 +1,16 @@
+{
+ "files": [
+  {
+   "path": "src/main/java/dev/plugforge/menudemo/MenuDemoPlugin.java",
+   "purpose": "Commands /menu and /claims, the menu, click listener, claims.yml"
+  },
+  {
+   "path": "src/main/resources/config.yml",
+   "purpose": "reward-amount default"
+  },
+  {
+   "path": "src/main/resources/plugin.yml",
+   "purpose": "Descriptor"
+  }
+ ]
+}
