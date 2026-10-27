@@ -6,7 +6,10 @@ export function plugforgeHome(): string {
   if (process.env.PLUGFORGE_HOME) return path.resolve(process.env.PLUGFORGE_HOME);
   switch (process.platform) {
     case "win32":
-      return path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "PlugForge");
+      // Not %LOCALAPPDATA%: when PlugForge runs under an MSIX-packaged app (e.g. a desktop
+      // assistant), Windows silently redirects AppData writes into that package's private cache,
+      // so a plain terminal would see a different, empty PlugForge folder.
+      return path.join(os.homedir(), ".plugforge");
     case "darwin":
       return path.join(os.homedir(), "Library", "Application Support", "PlugForge");
     default:

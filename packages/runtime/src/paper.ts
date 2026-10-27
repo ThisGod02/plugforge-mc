@@ -69,14 +69,19 @@ export async function ensurePaper(versions: BenchVersions, java: JavaRuntime, lo
 
   const baseDir = path.join(homePaths.paper(), `base-${version}-${build}`);
   const launchFile = path.join(baseDir, "launch.json");
-  if (!existsSync(launchFile)) {
+  let launch = existsSync(launchFile) ? (JSON.parse(await readFile(launchFile, "utf8")) as LaunchInfo) : undefined;
+  // launch.json stores paths relative to baseDir so the PlugForge folder can move; older files
+  // with absolute paths are rebuilt once their paths stop existing.
+  const resolveAll = (l: LaunchInfo) => l.classpath.map((p) => path.resolve(baseDir, p));
+  if (!launch || !resolveAll(launch).every((p) => existsSync(p))) {
     await mkdir(baseDir, { recursive: true });
     if (!existsSync(path.join(baseDir, "versions"))) {
       log("patching Paper (one-time, downloads the Mojang server jar)");
       await runPatchOnly(java, jar, baseDir, log);
     }
-    await writeFile(launchFile, JSON.stringify(await buildLaunchInfo(jar, baseDir), null, 2));
+    const built = await buildLaunchInfo(jar, baseDir);
+    launch = { mainClass: built.mainClass, classpath: built.classpath.map((p) => path.relative(baseDir, p)) };
+    await writeFile(launchFile, JSON.stringify(launch, null, 2));
   }
-  const launch = JSON.parse(await readFile(launchFile, "utf8")) as LaunchInfo;
-  return { jar, baseDir, ...launch };
+  return { jar, baseDir, mainClass: launch.mainClass, classpath: resolveAll(launch) };
 }
