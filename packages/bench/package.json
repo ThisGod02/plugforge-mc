@@ -1,0 +1,12 @@
+{
+  "name": "@plugforge/bench",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@plugforge/runtime": "*",
+    "mineflayer": "4.39.0",
+    "rcon-client": "^4.2.5"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@plugforge/cli",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "plugforge": "./src/index.ts"
+  },
+  "dependencies": {
+    "@plugforge/bench": "*",
+    "@plugforge/runtime": "*"
+  }
+}

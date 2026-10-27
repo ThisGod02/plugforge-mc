@@ -1,0 +1,18 @@
+{
+  "$comment": "Single source of truth for the test bench. Chosen 2026-10-27: newest MC version supported by Paper, Mineflayer and MockBukkit at once.",
+  "minecraft": "1.21.11",
+  "java": {
+    "minFeature": 21
+  },
+  "paper": {
+    "version": "1.21.11",
+    "build": 132,
+    "sha256": "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba",
+    "url": "https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/paper-1.21.11-132.jar"
+  },
+  "mineflayer": "4.39.0",
+  "mockbukkit": {
+    "artifact": "org.mockbukkit.mockbukkit:mockbukkit-v1.21",
+    "version": "4.116.3"
+  }
+}
