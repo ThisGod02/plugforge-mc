@@ -2,6 +2,7 @@ package dev.plugforge.hello;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.AfterEach;
@@ -113,6 +118,32 @@ class CheatSheetTest {
     void events() {
         server.addPlayer("Steve");
         server.getPluginManager().assertEventFired(PlayerJoinEvent.class);
+    }
+
+    @Test
+    void damageFiresEventsOnlyThroughSimulateDamage() {
+        int[] events = {0};
+        server.getPluginManager().registerEvents(new Listener() {
+            @EventHandler
+            public void onDamage(EntityDamageEvent event) {
+                events[0]++;
+            }
+        }, plugin);
+        PlayerMock steve = server.addPlayer("Steve");
+        PlayerMock alex = server.addPlayer("Alex");
+
+        // damage() only lowers health: listeners never see an EntityDamageEvent.
+        steve.damage(1.0);
+        steve.damage(1.0, alex);
+        assertEquals(0, events[0]);
+        assertEquals(18.0, steve.getHealth());
+
+        // simulateDamage() fires EntityDamageByEntityEvent (cause ENTITY_ATTACK), then applies it.
+        steve.setNoDamageTicks(0);
+        EntityDamageEvent event = steve.simulateDamage(1.0, alex);
+        assertEquals(1, events[0]);
+        assertInstanceOf(EntityDamageByEntityEvent.class, event);
+        assertEquals(17.0, steve.getHealth());
     }
 
     @Test

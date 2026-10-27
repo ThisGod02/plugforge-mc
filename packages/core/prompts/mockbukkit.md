@@ -33,6 +33,9 @@ steve.setHealth(10.0); steve.getHealth();
 steve.teleport(new Location(steve.getWorld(), 10, 64, 10)); steve.getLocation().getBlockX();
 server.getPlayerExact("Steve");  steve.disconnect();      // look up / take a player offline
 
+steve.simulateDamage(2.0, alex);                         // damage that fires EntityDamageByEntityEvent (cause ENTITY_ATTACK)
+steve.setNoDamageTicks(0);                                // allow another hit right away
+
 server.getScheduler().performTicks(20);                   // run scheduled tasks for 20 ticks (1 second)
 server.getPluginManager().assertEventFired(PlayerJoinEvent.class);
 ```
@@ -43,3 +46,4 @@ Traps:
 - There is no `player.chat`/`assertChat` for command replies; use `nextMessage()`.
 - `addPlayer()` already fires PlayerJoinEvent; join messages the plugin sends are queued on that player.
 - A non-op player without an attachment has no op-default permissions.
+- `player.damage(x)` and `player.damage(x, entity)` only lower health: they fire NO EntityDamageEvent, so plugin listeners never react. To test "on damage" behaviour use `player.simulateDamage(x, otherEntity)`. `player.damage(x, DamageSource)` is not implemented and throws.
