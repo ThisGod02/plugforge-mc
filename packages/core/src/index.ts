@@ -1,1 +1,12 @@
 export { scaffoldPlugin, type ScaffoldOptions } from "./workspace/scaffold.ts";
+export { editablePath, lockedFingerprint, readTree } from "./workspace/files.ts";
+export { loadSpec, validateSpec, type PluginSpec } from "./spec/spec.ts";
+export { OpenAiCompatibleModel, costUsd, LlmHttpError } from "./llm/client.ts";
+export { defaultLlmConfig, loadLlmConfig, llmConfigPath } from "./llm/config.ts";
+export { resolveApiKey, storeApiKey } from "./llm/keys.ts";
+export { BudgetExceededError, LlmGateway, type LlmCall, type LlmTotals } from "./llm/gateway.ts";
+export { ScriptedModel } from "./llm/scripted.ts";
+export type { ChatMessage, ChatModel, LlmConfig, LlmProfile, Route } from "./llm/types.ts";
+export { applyEdits, parseEdits, type FileEdit } from "./stages/protocol.ts";
+export { runAgent, failureSignature, isEmptyDir, type AgentOptions, type AgentResult } from "./orchestrator/orchestrator.ts";
+export { RunLog } from "./orchestrator/runlog.ts";

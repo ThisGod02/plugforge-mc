@@ -23,4 +23,6 @@ export const homePaths = {
   servers: () => path.join(plugforgeHome(), "servers"),
   downloads: () => path.join(plugforgeHome(), "downloads"),
   config: () => path.join(plugforgeHome(), "config.json"),
+  /** One folder per agent run: prompts, replies, code per iteration, check results (PLAN.md §12). */
+  runs: () => path.join(plugforgeHome(), "runs"),
 };

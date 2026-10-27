@@ -1,0 +1,46 @@
+{
+  "name": "Greeter",
+  "package": "dev.plugforge.greeter",
+  "mainClass": "GreeterPlugin",
+  "description": "Greets players with a configurable message; admins can reload the config.",
+  "commands": [
+    {
+      "name": "greet",
+      "description": "Greet yourself or another online player",
+      "usage": "/greet [player]"
+    },
+    {
+      "name": "greeter",
+      "description": "Greeter admin commands",
+      "usage": "/greeter reload"
+    }
+  ],
+  "permissions": [
+    { "node": "greeter.admin", "description": "Use /greeter reload", "default": "op" }
+  ],
+  "config": [
+    {
+      "key": "greeting.message",
+      "type": "string",
+      "default": "Hello, %player%!",
+      "description": "Greeting text; %player% is replaced with the greeted player's name"
+    }
+  ],
+  "messages": {
+    "greetedOther": "Greeted %player%.",
+    "playerNotFound": "Player not found: %player%",
+    "reloaded": "Greeter config reloaded.",
+    "noPermission": "You don't have permission to do that.",
+    "reloadUsage": "Usage: /greeter reload",
+    "consoleNeedsTarget": "Usage: /greet <player>"
+  },
+  "acceptance": [
+    { "id": "AC1", "text": "The default config.yml has greeting.message = \"Hello, %player%!\"" },
+    { "id": "AC2", "text": "/greet sends the sender the greeting with %player% replaced by their own name" },
+    { "id": "AC3", "text": "/greet <name> sends the greeting to that online player and tells the sender greetedOther" },
+    { "id": "AC4", "text": "/greet <name> for a player who is not online tells the sender playerNotFound" },
+    { "id": "AC5", "text": "/greeter reload by a sender with greeter.admin reloads config.yml from disk and sends reloaded; later greetings use the new text" },
+    { "id": "AC6", "text": "/greeter reload without greeter.admin sends noPermission and does not reload (checked in code, not via plugin.yml command permission)" },
+    { "id": "AC7", "text": "/greeter without arguments or with an unknown argument sends reloadUsage (to admins)" }
+  ]
+}

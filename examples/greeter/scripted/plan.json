@@ -1,0 +1,7 @@
+{"files": [
+  {"path": "src/main/java/dev/plugforge/greeter/GreeterPlugin.java", "purpose": "Main class: saveDefaultConfig, registers executors, greetingFor(name) formats greeting.message"},
+  {"path": "src/main/java/dev/plugforge/greeter/GreetCommand.java", "purpose": "/greet [player] executor"},
+  {"path": "src/main/java/dev/plugforge/greeter/GreeterAdminCommand.java", "purpose": "/greeter reload executor with greeter.admin check"},
+  {"path": "src/main/resources/config.yml", "purpose": "Default greeting.message"},
+  {"path": "src/main/resources/plugin.yml", "purpose": "Descriptor with commands greet, greeter and permission greeter.admin"}
+]}

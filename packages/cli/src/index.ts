@@ -13,6 +13,7 @@ import {
   saveSettings,
   type Log,
 } from "@plugforge/runtime";
+import { keySetCommand, llmPingCommand, runCommand } from "./agent.ts";
 import { runSelftest } from "./selftest.ts";
 
 const started = Date.now();
@@ -26,6 +27,11 @@ Commands:
   new <dir>             Create a plugin project from the template (--name, --package, --description)
   check <dir>           L0 build + plugin.yml validation + L1 MockBukkit tests (--json, --verbose)
   selftest              Run the bench fixtures and compare with expected results (--only, --keep, --verbose)
+  run <spec.json>       Agent: write the plugin and fix it until L0+L1 are green
+                        (--out <dir>, --tests <dir> [default: tests/ next to the spec],
+                         --max-fix <n> [8], --scripted <replies.json> to replay canned LLM answers)
+  key set <name>        Store an API key, e.g. "key set deepseek" (encrypted with Windows DPAPI)
+  llm ping [route]      Send one tiny request through the LLM gateway (routes: plan, code, fix, fix_escalation)
 
 Options:
   --accept-eula         Accept the Minecraft EULA (https://aka.ms/MinecraftEULA) and remember it
@@ -122,6 +128,10 @@ async function main() {
       package: { type: "string" },
       description: { type: "string" },
       only: { type: "string" },
+      out: { type: "string" },
+      tests: { type: "string" },
+      scripted: { type: "string" },
+      "max-fix": { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -157,6 +167,34 @@ async function main() {
       if (!ok) process.exitCode = 1;
       break;
     }
+    case "run": {
+      if (!positionals[1]) throw new Error("usage: run <spec.json> [--out <dir>] [--tests <dir>] [--max-fix <n>] [--scripted <file>]");
+      const maxFix = values["max-fix"] === undefined ? undefined : Number(values["max-fix"]);
+      if (maxFix !== undefined && !(Number.isInteger(maxFix) && maxFix >= 0)) throw new Error("--max-fix must be a whole number");
+      const { versions, java, gradle } = await setup();
+      const ok = await runCommand({
+        specFile: positionals[1],
+        out: values.out,
+        tests: values.tests,
+        scripted: values.scripted,
+        maxFix,
+        java,
+        gradle,
+        paperApi: versions.paperApi,
+        pluginApiVersion: versions.pluginApiVersion,
+        log,
+      });
+      if (!ok) process.exitCode = 1;
+      break;
+    }
+    case "key":
+      if (positionals[1] !== "set") throw new Error("usage: key set <name>");
+      await keySetCommand(positionals[2], log);
+      break;
+    case "llm":
+      if (positionals[1] !== "ping") throw new Error("usage: llm ping [route]");
+      await llmPingCommand(positionals[2], log);
+      break;
     default:
       console.error(`Unknown command: ${command}\n\n${USAGE}`);
       process.exitCode = 2;

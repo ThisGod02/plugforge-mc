@@ -258,7 +258,7 @@ steps:
 ```jsonc
 {
   "profiles": {
-    "cheap":  { "baseUrl": "https://api.deepseek.com", "model": "<актуальная модель>", "apiKeyRef": "deepseek" },
+    "cheap":  { "baseUrl": "https://api.deepseek.com", "model": "deepseek-flash", "apiKeyRef": "deepseek" },
     "strong": { "baseUrl": "...", "model": "...", "apiKeyRef": "..." }
   },
   "routing": {

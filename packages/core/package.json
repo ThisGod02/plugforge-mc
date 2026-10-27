@@ -5,6 +5,8 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@plugforge/runtime": "*"
+    "@plugforge/bench": "*",
+    "@plugforge/runtime": "*",
+    "yaml": "^2.9.1"
   }
 }
