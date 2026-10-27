@@ -1,6 +1,11 @@
 export { scaffoldPlugin, type ScaffoldOptions } from "./workspace/scaffold.ts";
 export { editablePath, lockedFingerprint, readTree } from "./workspace/files.ts";
 export { loadSpec, validateSpec, type PluginSpec } from "./spec/spec.ts";
+export { schemaErrors, specSchema } from "./spec/schema.ts";
+export { clarify, renderAnswers, type Answer, type ClarifyQuestion } from "./stages/clarifier.ts";
+export { writeSpec } from "./stages/specwriter.ts";
+export { testCoverage, writeTests, type CompileTests } from "./stages/testwriter.ts";
+export type { LlmContext } from "./stages/context.ts";
 export { OpenAiCompatibleModel, costUsd, LlmHttpError } from "./llm/client.ts";
 export { defaultLlmConfig, loadLlmConfig, llmConfigPath } from "./llm/config.ts";
 export { resolveApiKey, storeApiKey } from "./llm/keys.ts";

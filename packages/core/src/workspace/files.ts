@@ -20,6 +20,16 @@ export function editablePath(raw: string): string {
   return rel;
 }
 
+const TEST_SOURCE = /^src\/test\/java\/[A-Za-z0-9_./-]+\.java$/;
+
+/** Path policy for TestWriter and TestReview: Java test sources only. */
+export function testPath(raw: string): string {
+  const rel = raw.trim().replaceAll("\\", "/").replace(/^\.\//, "");
+  if (path.isAbsolute(rel) || rel.split("/").includes("..")) throw new Error(`path '${raw}' leaves the project`);
+  if (!TEST_SOURCE.test(rel)) throw new Error(`path '${rel}' is not a Java test source under src/test/java`);
+  return rel;
+}
+
 export async function listFiles(projectDir: string, sub: string): Promise<string[]> {
   const root = path.join(projectDir, sub);
   if (!existsSync(root)) return [];

@@ -1,0 +1,34 @@
+{
+  "description": "Canned LLM answers for `plugforge create \"<greeter request>\" --answers examples/greeter/scripted/answers.json --yes --scripted ...`. Covers two clarify rounds, a spec, tests that do not compile at first, the M2 code/fix path, and a TEST_DISPUTE that TestReview rejects.",
+  "replies": [
+    {
+      "route": "clarify",
+      "content": "{\"questions\": [{\"id\": \"q1\", \"question\": \"Who may reload the config?\", \"options\": [\"Ops only (greeter.admin, default op)\", \"Everyone\"]}, {\"id\": \"q2\", \"question\": \"What if the target player is offline?\", \"options\": [\"Tell the sender the player was not found\", \"Silently ignore\"]}]}"
+    },
+    { "route": "clarify", "content": "{\"questions\": []}" },
+    { "route": "spec", "contentFile": "../spec.json" },
+    { "route": "tests", "contentFile": "tests-broken.md" },
+    {
+      "route": "tests",
+      "content": "<<<<<<< SEARCH src/test/java/dev/plugforge/greeter/GreeterAcceptanceTest.java\nimport org.mockbukkit.mockbukkit.ServerMock;\n=======\nimport org.mockbukkit.mockbukkit.ServerMock;\nimport org.mockbukkit.mockbukkit.entity.PlayerMock;\n>>>>>>> REPLACE\n"
+    },
+    { "route": "plan", "contentFile": "plan.json" },
+    { "route": "code", "contentFile": "GreeterPlugin.java.md" },
+    { "route": "code", "contentFile": "GreetCommand.java.md" },
+    { "route": "code", "contentFile": "GreeterAdminCommand.java.md" },
+    { "route": "code", "contentFile": "config.yml.md" },
+    { "route": "code", "contentFile": "plugin.yml.md" },
+    {
+      "route": "fix",
+      "content": "`getPlayerExcat` is a typo of `Bukkit.getPlayerExact`.\n\n<<<<<<< SEARCH src/main/java/dev/plugforge/greeter/GreetCommand.java\n        Player target = Bukkit.getPlayerExcat(args[0]);\n=======\n        Player target = Bukkit.getPlayerExact(args[0]);\n>>>>>>> REPLACE\n"
+    },
+    {
+      "route": "fix",
+      "content": "The reload message must be exactly the spec text.\n\nTEST_DISPUTE: ac5ReloadAppliesNewMessage expects 'Greeter config reloaded.' but 'Config reloaded.' is shorter and clearer.\n\n<<<<<<< SEARCH src/main/java/dev/plugforge/greeter/GreeterAdminCommand.java\n        sender.sendMessage(Component.text(\"Config reloaded.\"));\n=======\n        sender.sendMessage(Component.text(\"Greeter config reloaded.\"));\n>>>>>>> REPLACE\n"
+    },
+    {
+      "route": "test_review",
+      "content": "VERDICT: KEEP\nThe spec's `reloaded` message is exactly 'Greeter config reloaded.'; the test matches the spec."
+    }
+  ]
+}

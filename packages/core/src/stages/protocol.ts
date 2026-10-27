@@ -118,14 +118,17 @@ export interface ApplyResult {
   errors: string[];
 }
 
-/** Applies edits under the editable-path policy. Each failed edit is reported, the rest still apply. */
-export async function applyEdits(projectDir: string, edits: FileEdit[]): Promise<ApplyResult> {
+/**
+ * Applies edits under a path policy (main sources by default, test sources for TestWriter).
+ * Each failed edit is reported, the rest still apply.
+ */
+export async function applyEdits(projectDir: string, edits: FileEdit[], policy: (raw: string) => string = editablePath): Promise<ApplyResult> {
   const changed = new Set<string>();
   const errors: string[] = [];
   for (const edit of edits) {
     let rel: string;
     try {
-      rel = editablePath(edit.path);
+      rel = policy(edit.path);
     } catch (err) {
       errors.push((err as Error).message);
       continue;

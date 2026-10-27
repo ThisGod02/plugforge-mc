@@ -6,7 +6,7 @@ import { runGradle, type GradleRunResult } from "./gradle.ts";
 import { parseJavacDiagnostics } from "./javac.ts";
 import { parseJUnitReports } from "./junit.ts";
 import { validatePluginYml } from "./pluginYml.ts";
-import type { CheckResult, CheckStage, Diagnostic, TestStageResult } from "./types.ts";
+import type { CheckResult, CheckStage, Diagnostic, StageResult, TestStageResult } from "./types.ts";
 
 export interface CheckOptions {
   projectDir: string;
@@ -26,6 +26,19 @@ function failureDiagnostics(run: GradleRunResult, projectDir: string, stage: Che
   const message = run.timedOut ? "Gradle timed out" : `Gradle failed${run.failedTask ? ` in task ${run.failedTask}` : ""}`;
   const detail = run.failure ?? run.output.split(/\r?\n/).slice(-40).join("\n");
   return [...javac, { stage, severity: "error", message, detail }];
+}
+
+/**
+ * Compiles main and test sources without running tests. TestWriter uses it to check new tests
+ * against the scaffold before any plugin code exists.
+ */
+export async function compileTests(opts: Omit<CheckOptions, "pluginApiVersion">): Promise<StageResult> {
+  const log = opts.log ?? (() => {});
+  const onLine = opts.verbose ? (l: string) => log(`  | ${l}`) : undefined;
+  const run = await runGradle({ gradle: opts.gradle, java: opts.java, projectDir: opts.projectDir, tasks: ["testClasses"], onLine });
+  const diagnostics =
+    run.exitCode === 0 ? parseJavacDiagnostics(run.output, opts.projectDir, "test") : failureDiagnostics(run, opts.projectDir, "test");
+  return { ok: run.exitCode === 0, durationMs: run.durationMs, diagnostics };
 }
 
 /** L0 (compile + jar), plugin.yml validation, then L1 (MockBukkit unit tests). Stops at the first failing stage. */

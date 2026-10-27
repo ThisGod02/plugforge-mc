@@ -13,7 +13,7 @@ import {
   saveSettings,
   type Log,
 } from "@plugforge/runtime";
-import { keySetCommand, llmPingCommand, runCommand } from "./agent.ts";
+import { createCommand, keySetCommand, llmPingCommand, runCommand } from "./agent.ts";
 import { runSelftest } from "./selftest.ts";
 
 const started = Date.now();
@@ -27,9 +27,12 @@ Commands:
   new <dir>             Create a plugin project from the template (--name, --package, --description)
   check <dir>           L0 build + plugin.yml validation + L1 MockBukkit tests (--json, --verbose)
   selftest              Run the bench fixtures and compare with expected results (--only, --keep, --verbose)
-  run <spec.json>       Agent: write the plugin and fix it until L0+L1 are green
-                        (--out <dir>, --tests <dir> [default: tests/ next to the spec],
+  create "<request>"    Agent from a text request: questions → spec (you approve it) → tests → code → fixes
+                        (--out <dir>, --yes to take recommended answers and approve, --answers <file.json>,
                          --max-fix <n> [8], --scripted <replies.json> to replay canned LLM answers)
+  run <spec.json>       Agent from a ready spec: tests (ready-made or TestWriter) → code → fixes
+                        (--out <dir>, --tests <dir> [default: tests/ next to the spec, else TestWriter],
+                         --max-fix <n> [8], --scripted <replies.json>)
   key set <name>        Store an API key, e.g. "key set deepseek" (encrypted with Windows DPAPI)
   llm ping [route]      Send one tiny request through the LLM gateway (routes: plan, code, fix, fix_escalation)
 
@@ -116,6 +119,13 @@ async function smoke(opts: { acceptEula: boolean; keep: boolean }) {
   log("SMOKE OK");
 }
 
+function parseMaxFix(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!(Number.isInteger(n) && n >= 0)) throw new Error("--max-fix must be a whole number");
+  return n;
+}
+
 async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -132,6 +142,8 @@ async function main() {
       tests: { type: "string" },
       scripted: { type: "string" },
       "max-fix": { type: "string" },
+      answers: { type: "string" },
+      yes: { type: "boolean", short: "y", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -167,10 +179,27 @@ async function main() {
       if (!ok) process.exitCode = 1;
       break;
     }
+    case "create": {
+      const { versions, java, gradle } = await setup();
+      const ok = await createCommand({
+        request: positionals.slice(1).join(" "),
+        out: values.out,
+        yes: values.yes!,
+        answersFile: values.answers,
+        scripted: values.scripted,
+        maxFix: parseMaxFix(values["max-fix"]),
+        java,
+        gradle,
+        paperApi: versions.paperApi,
+        pluginApiVersion: versions.pluginApiVersion,
+        log,
+      });
+      if (!ok) process.exitCode = 1;
+      break;
+    }
     case "run": {
       if (!positionals[1]) throw new Error("usage: run <spec.json> [--out <dir>] [--tests <dir>] [--max-fix <n>] [--scripted <file>]");
-      const maxFix = values["max-fix"] === undefined ? undefined : Number(values["max-fix"]);
-      if (maxFix !== undefined && !(Number.isInteger(maxFix) && maxFix >= 0)) throw new Error("--max-fix must be a whole number");
+      const maxFix = parseMaxFix(values["max-fix"]);
       const { versions, java, gradle } = await setup();
       const ok = await runCommand({
         specFile: positionals[1],

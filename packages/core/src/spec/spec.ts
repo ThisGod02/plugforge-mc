@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { schemaErrors } from "./schema.ts";
 
 export interface SpecCommand {
   name: string;
@@ -28,7 +29,7 @@ export interface AcceptanceCriterion {
   text: string;
 }
 
-/** Plugin specification (PLAN.md §5). M2 covers commands, permissions, config and messages. */
+/** Plugin specification (PLAN.md §5), validated by spec/schema.ts. Covers commands, permissions, config and messages. */
 export interface PluginSpec {
   name: string;
   package: string;
@@ -40,37 +41,28 @@ export interface PluginSpec {
   /** Exact texts the plugin sends, by key. */
   messages?: Record<string, string>;
   acceptance: AcceptanceCriterion[];
+  assumptions?: string[];
 }
 
-const NAME = /^[A-Za-z][A-Za-z0-9_-]{1,63}$/;
-const PACKAGE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
-const CLASS = /^[A-Z][A-Za-z0-9_]*$/;
-const COMMAND = /^[a-z0-9_-]+$/;
+const RESERVED_PACKAGE = /^(org\.bukkit|io\.papermc|net\.minecraft|org\.spigotmc|com\.destroystokyo|net\.kyori|org\.mockbukkit)(\.|$)/;
 
-/** Structural checks; JSON Schema validation comes with SpecWriter in M3. */
-export function validateSpec(spec: PluginSpec): string[] {
-  const errors: string[] = [];
-  if (!NAME.test(spec.name ?? "")) errors.push(`name: invalid plugin name '${spec.name}'`);
-  if (!PACKAGE.test(spec.package ?? "")) errors.push(`package: invalid Java package '${spec.package}'`);
-  if (!CLASS.test(spec.mainClass ?? "")) errors.push(`mainClass: invalid class name '${spec.mainClass}'`);
-  if (!spec.description) errors.push("description: required");
-  if (!Array.isArray(spec.commands)) errors.push("commands: must be an array");
-  else {
-    const seen = new Set<string>();
-    for (const c of spec.commands) {
-      if (!COMMAND.test(c.name ?? "")) errors.push(`commands: invalid command name '${c.name}'`);
-      if (seen.has(c.name)) errors.push(`commands: duplicate '${c.name}'`);
-      seen.add(c.name);
-    }
-  }
-  if (!Array.isArray(spec.acceptance) || spec.acceptance.length === 0) errors.push("acceptance: at least one criterion required");
-  else {
-    const ids = new Set<string>();
-    for (const a of spec.acceptance) {
-      if (!a.id || !a.text) errors.push("acceptance: every criterion needs id and text");
-      if (ids.has(a.id)) errors.push(`acceptance: duplicate id '${a.id}'`);
-      ids.add(a.id);
-    }
+function duplicates(values: string[]): string[] {
+  return [...new Set(values.filter((v, i) => values.indexOf(v) !== i))];
+}
+
+/** JSON Schema (spec/schema.ts) plus the rules a schema cannot express. */
+export function validateSpec(spec: unknown): string[] {
+  const errors = schemaErrors(spec);
+  if (errors.length) return errors;
+  const s = spec as PluginSpec;
+  if (RESERVED_PACKAGE.test(s.package)) errors.push(`package: '${s.package}' is reserved by the server or libraries`);
+  for (const d of duplicates(s.commands.flatMap((c) => [c.name, ...(c.aliases ?? [])]))) errors.push(`commands: '${d}' is used twice`);
+  for (const d of duplicates((s.permissions ?? []).map((p) => p.node))) errors.push(`permissions: '${d}' is declared twice`);
+  for (const d of duplicates((s.config ?? []).map((c) => c.key))) errors.push(`config: '${d}' is declared twice`);
+  for (const d of duplicates(s.acceptance.map((a) => a.id))) errors.push(`acceptance: id '${d}' is used twice`);
+  const declared = new Set((s.permissions ?? []).map((p) => p.node));
+  for (const c of s.commands) {
+    if (c.permission && !declared.has(c.permission)) errors.push(`commands.${c.name}: permission '${c.permission}' is not in 'permissions'`);
   }
   return errors;
 }

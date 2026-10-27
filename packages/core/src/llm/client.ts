@@ -40,7 +40,7 @@ export class OpenAiCompatibleModel implements ChatModel {
       model: p.model,
       messages: req.messages,
       stream: false,
-      ...(p.maxTokens ? { max_tokens: p.maxTokens } : {}),
+      ...((req.maxTokens ?? p.maxTokens) ? { max_tokens: req.maxTokens ?? p.maxTokens } : {}),
       ...(p.temperature !== undefined ? { temperature: p.temperature } : {}),
       ...(req.json ? { response_format: { type: "json_object" } } : {}),
       ...p.extraBody,

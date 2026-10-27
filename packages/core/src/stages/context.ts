@@ -8,14 +8,18 @@ import { readTree, renderFiles } from "../workspace/files.ts";
 
 const promptsDir = fileURLToPath(new URL("../../prompts/", import.meta.url));
 
-/** What every stage needs: the task, the project on disk and a model. */
-export interface StageContext {
-  spec: PluginSpec;
-  projectDir: string;
+/** What every model-calling stage needs, including the ones that run before a spec exists. */
+export interface LlmContext {
   gateway: LlmGateway;
   paperApi: string;
   pluginApiVersion: string;
   log: Log;
+}
+
+/** Stages that work on a project: the spec and the project on disk on top of the model. */
+export interface StageContext extends LlmContext {
+  spec: PluginSpec;
+  projectDir: string;
 }
 
 export const mainClassPath = (spec: PluginSpec) => `src/main/java/${spec.package.replaceAll(".", "/")}/${spec.mainClass}.java`;
@@ -27,6 +31,11 @@ export async function renderPrompt(name: string, vars: Record<string, string>): 
     if (value === undefined) throw new Error(`prompt ${name} uses unknown variable ${match}`);
     return value;
   });
+}
+
+/** A prompt fragment inserted verbatim (e.g. the MockBukkit cheat sheet, which contains Java braces). */
+export function rawPrompt(name: string): Promise<string> {
+  return readFile(`${promptsDir}${name}.md`, "utf8");
 }
 
 /** Variables shared by all prompts. */
@@ -41,8 +50,14 @@ export function baseVars(ctx: StageContext): Record<string, string> {
   };
 }
 
+/** System prompt for code-writing stages (Coder, Fixer): tests are fixed. */
 export async function systemMessage(ctx: StageContext): Promise<ChatMessage> {
   return { role: "system", content: await renderPrompt("system", baseVars(ctx)) };
+}
+
+/** System prompt for the stages that shape the task (Clarifier, SpecWriter, TestWriter, TestReview). */
+export async function plannerSystemMessage(ctx: LlmContext): Promise<ChatMessage> {
+  return { role: "system", content: await renderPrompt("system-planner", { paperApi: ctx.paperApi, pluginApiVersion: ctx.pluginApiVersion }) };
 }
 
 export async function renderTests(projectDir: string): Promise<string> {

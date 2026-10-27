@@ -14,7 +14,8 @@ const deepseek = (model: string, thinking: boolean, pricing: Pricing): LlmProfil
   model,
   apiKeyRef: "deepseek",
   extraBody: { thinking: { type: thinking ? "enabled" : "disabled" } },
-  maxTokens: 32_000,
+  // Reasoning tokens count against max_tokens; 32k was too tight for TestWriter on 12-criterion specs.
+  maxTokens: 64_000,
   pricing,
 });
 
@@ -24,7 +25,16 @@ export const defaultLlmConfig: LlmConfig = {
     "flash-think": deepseek("deepseek-flash", true, FLASH_PRICING),
     pro: deepseek("deepseek-v4-pro", true, PRO_PRICING),
   },
-  routing: { plan: "flash", code: "flash", fix: "flash-think", fix_escalation: "pro" },
+  routing: {
+    clarify: "flash",
+    spec: "flash-think",
+    tests: "flash-think",
+    test_review: "flash-think",
+    plan: "flash",
+    code: "flash",
+    fix: "flash-think",
+    fix_escalation: "pro",
+  },
   budget: { maxCostUsdPerTask: 0.5 },
 };
 

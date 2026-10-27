@@ -1,4 +1,4 @@
-import { cp, readdir } from "node:fs/promises";
+import { cp, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CheckResult, Diagnostic } from "@plugforge/bench";
 import type { Log } from "@plugforge/runtime";
@@ -7,17 +7,25 @@ import type { PluginSpec } from "../spec/spec.ts";
 import { writeProject } from "../stages/coder.ts";
 import type { StageContext } from "../stages/context.ts";
 import { fixProject } from "../stages/fixer.ts";
+import { reviewTests } from "../stages/testreview.ts";
+import { templateTestPath, testCoverage, writeTests, type CompileTests } from "../stages/testwriter.ts";
 import { scaffoldPlugin } from "../workspace/scaffold.ts";
-import { listFiles, lockedFingerprint } from "../workspace/files.ts";
+import { listFiles, lockedFingerprint, readTree } from "../workspace/files.ts";
 import { specConformance } from "./conformance.ts";
 import type { RunLog } from "./runlog.ts";
 
-export type AgentState = "SCAFFOLD" | "CODE_WRITE" | "CHECK" | "FIX" | "DONE" | "STUCK" | "ERROR";
+export type AgentState = "SCAFFOLD" | "TESTS_WRITE" | "CODE_WRITE" | "CHECK" | "FIX" | "TEST_REVIEW" | "DONE" | "STUCK" | "ERROR";
 
 export interface AgentOptions {
   spec: PluginSpec;
-  /** Overlay with the fixed tests, laid out like the project (`src/test/java/...`). */
+  /** Overlay with ready-made tests, laid out like the project (`src/test/java/...`). Without it TestWriter writes them. */
   testsDir?: string;
+  /** Compiles tests without running them; required when TestWriter writes the tests. */
+  compileTests?: CompileTests;
+  /** Request, questions and answers that produced the spec; stored in run.json. */
+  intake?: Record<string, unknown>;
+  /** Fixer TEST_DISPUTEs sent to TestReview per run (default 2). */
+  maxTestReviews?: number;
   /** Must not exist or be empty. */
   projectDir: string;
   gateway: LlmGateway;
@@ -42,6 +50,8 @@ export interface AgentResult {
   fixIterations: number;
   check?: CheckResult;
   disputes: string[];
+  /** Test methods per acceptance criterion. */
+  coverage?: Record<string, string[]>;
 }
 
 function errorsOf(r: CheckResult): Diagnostic[] {
@@ -80,30 +90,39 @@ function sameFingerprint(a: Map<string, string>, b: Map<string, string>): string
 }
 
 /**
- * Orchestrator for M2 (PLAN.md §3): a fixed state machine around the LLM stages.
- * SCAFFOLD → CODE_WRITE → CHECK ─fail→ FIX → CHECK … → DONE, or STUCK on limits.
+ * Orchestrator (PLAN.md §3): a fixed state machine around the LLM stages.
+ * SCAFFOLD → TESTS_WRITE → CODE_WRITE → CHECK ─fail→ FIX (→ TEST_REVIEW) → CHECK … → DONE,
+ * or STUCK on limits. Clarifier and SpecWriter run before this, in the caller, because they
+ * need the user.
  */
 export async function runAgent(o: AgentOptions): Promise<AgentResult> {
   const maxFix = o.maxFixIterations ?? 8;
   const escalateAfter = o.escalateAfter ?? 3;
   const stuckAfter = o.stuckAfter ?? 5;
+  const maxReviews = o.maxTestReviews ?? 2;
   const { spec, projectDir, runLog, log } = o;
   const ctx: StageContext = { spec, projectDir, gateway: o.gateway, paperApi: o.paperApi, pluginApiVersion: o.pluginApiVersion, log };
   const disputes: string[] = [];
   let fixIterations = 0;
+  let reviews = 0;
   let last: CheckResult | undefined;
+  let coverage: Record<string, string[]> | undefined;
 
   const enter = async (state: AgentState, data: Record<string, unknown> = {}) => {
     await runLog.event(state, data);
     log(`[${state}]${data.note ? ` ${String(data.note)}` : ""}`);
   };
-  const finish = async (result: AgentResult): Promise<AgentResult> => {
+  const finish = async (partial: AgentResult): Promise<AgentResult> => {
+    const result = { ...partial, coverage };
     await enter(result.status === "done" ? "DONE" : result.status === "stuck" ? "STUCK" : "ERROR", { note: result.reason ?? "" });
     await runLog.write({
       status: result.status,
       reason: result.reason,
       fixIterations: result.fixIterations,
+      testReviews: reviews,
       disputes: result.disputes,
+      coverage,
+      intake: o.intake,
       spec,
       projectDir,
       routing: o.gateway.config.routing,
@@ -117,8 +136,23 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
   try {
     await enter("SCAFFOLD", { note: projectDir });
     await scaffoldPlugin(projectDir, { name: spec.name, packageName: spec.package, mainClass: spec.mainClass, description: spec.description });
-    if (o.testsDir) log(`installed ${await installTests(o.testsDir, projectDir)} fixed test file(s)`);
-    const locked = await lockedFingerprint(projectDir);
+    // The approved spec travels with the project (for the user, and for change requests in M9).
+    await writeFile(path.join(projectDir, "spec.json"), `${JSON.stringify(spec, null, 2)}\n`);
+
+    if (o.testsDir) {
+      log(`installed ${await installTests(o.testsDir, projectDir)} ready-made test file(s)`);
+      const tests = await readTree(projectDir, "src/test");
+      tests.delete(templateTestPath(spec));
+      const c = testCoverage(spec, tests);
+      coverage = c.byCriterion;
+      if (c.missing.length) log(`warning: no tests for ${c.missing.join(", ")}`);
+    } else {
+      if (!o.compileTests) throw new Error("compileTests is required when the agent writes the tests");
+      await enter("TESTS_WRITE");
+      coverage = (await writeTests(ctx, o.compileTests)).byCriterion;
+    }
+    await runLog.event("TESTS_LOCKED", { coverage });
+    let locked = await lockedFingerprint(projectDir);
 
     await enter("CODE_WRITE");
     await writeProject(ctx);
@@ -162,6 +196,20 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
         `#${fixIterations}: ${failureSummary(result)} → changed ${fix.changed.join(", ") || "nothing"}` +
           (fix.errors.length ? ` (unapplied: ${fix.errors.join("; ")})` : ""),
       );
+
+      if (fix.disputes.length && reviews < maxReviews) {
+        reviews++;
+        await enter("TEST_REVIEW", { note: fix.disputes.join(" | ").slice(0, 200) });
+        const review = await reviewTests(ctx, { dispute: fix.disputes.join("\n"), check: result });
+        await runLog.event("TEST_REVIEW_VERDICT", { verdict: review.verdict, reason: review.reason, changed: review.changed });
+        log(`TestReview: ${review.verdict.toUpperCase()} — ${review.reason.split("\n")[0]}`);
+        if (review.changed.length) {
+          locked = await lockedFingerprint(projectDir);
+          history.push(`TestReview changed ${review.changed.join(", ")}: ${review.reason.split("\n")[0]}`);
+        } else {
+          history.push(`TestReview kept the tests: ${review.reason.split("\n")[0]}. Fix the code instead.`);
+        }
+      }
     }
   } catch (err) {
     if (err instanceof BudgetExceededError) return finish({ status: "stuck", reason: err.message, fixIterations, check: last, disputes });

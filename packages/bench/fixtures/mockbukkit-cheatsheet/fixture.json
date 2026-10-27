@@ -1,0 +1,5 @@
+{
+  "description": "Proves every MockBukkit idiom the TestWriter prompt (packages/core/prompts/mockbukkit.md) recommends.",
+  "extends": "hello-ok",
+  "expect": { "ok": true, "minTests": 10 }
+}

@@ -4,6 +4,17 @@ import type { ChatMessage, ChatModel, ChatResponse, LlmConfig, Route, Usage } fr
 
 export class BudgetExceededError extends Error {}
 
+export class TruncatedError extends Error {
+  constructor(
+    message: string,
+    readonly maxTokens: number,
+  ) {
+    super(message);
+  }
+}
+
+const TRUNCATION_RETRY_CAP = 128_000;
+
 /** Everything about one model call; the run log stores these as training data. */
 export interface LlmCall {
   seq: number;
@@ -66,7 +77,21 @@ export class LlmGateway {
     return this.config.routing[route];
   }
 
+  /**
+   * One stage call. A reply cut off by max_tokens (usually a reasoning model thinking too long)
+   * is retried once with double the limit, capped at TRUNCATION_RETRY_CAP.
+   */
   async chat(route: Route, messages: ChatMessage[], opts: { json?: boolean; label?: string } = {}): Promise<ChatResponse> {
+    try {
+      return await this.once(route, messages, opts);
+    } catch (err) {
+      if (!(err instanceof TruncatedError) || err.maxTokens >= TRUNCATION_RETRY_CAP) throw err;
+      const maxTokens = Math.min(err.maxTokens * 2, TRUNCATION_RETRY_CAP);
+      return this.once(route, messages, { ...opts, maxTokens, label: `${opts.label ?? route}.retry-${maxTokens}` });
+    }
+  }
+
+  private async once(route: Route, messages: ChatMessage[], opts: { json?: boolean; label?: string; maxTokens?: number }): Promise<ChatResponse> {
     const limit = this.config.budget.maxCostUsdPerTask;
     if (this.totals.costUsd >= limit) {
       throw new BudgetExceededError(`budget of $${limit} per task is used up ($${this.totals.costUsd.toFixed(4)} spent)`);
@@ -92,7 +117,7 @@ export class LlmGateway {
     };
     const started = Date.now();
     try {
-      const res = await (await model).complete({ messages, json: opts.json, route });
+      const res = await (await model).complete({ messages, json: opts.json, route, maxTokens: opts.maxTokens });
       call.content = res.content;
       call.reasoning = res.reasoning;
       call.usage = res.usage;
@@ -102,7 +127,14 @@ export class LlmGateway {
       this.totals.promptTokens += res.usage.promptTokens;
       this.totals.completionTokens += res.usage.completionTokens;
       this.totals.cacheHitTokens += res.usage.cacheHitTokens;
-      if (res.finishReason === "length") throw new Error(`${profile.model} hit max_tokens; the answer is truncated`);
+      if (res.finishReason === "length") {
+        const used = opts.maxTokens ?? profile.maxTokens ?? res.usage.completionTokens;
+        throw new TruncatedError(
+          `${profile.model} hit max_tokens (${used}); the answer is truncated` +
+            (res.usage.reasoningTokens >= res.usage.completionTokens * 0.9 ? " — almost all of it was reasoning" : ""),
+          used,
+        );
+      }
       return res;
     } catch (err) {
       call.error = (err as Error).message;

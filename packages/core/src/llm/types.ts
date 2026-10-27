@@ -27,7 +27,7 @@ export interface LlmProfile {
 }
 
 /** Agent stages that call a model; each one is routed to a profile. */
-export type Route = "plan" | "code" | "fix" | "fix_escalation";
+export type Route = "clarify" | "spec" | "tests" | "test_review" | "plan" | "code" | "fix" | "fix_escalation";
 
 export interface LlmConfig {
   profiles: Record<string, LlmProfile>;
@@ -45,6 +45,8 @@ export interface Usage {
 export interface ChatRequest {
   messages: ChatMessage[];
   json?: boolean;
+  /** Overrides the profile's maxTokens (the gateway raises it after a truncated answer). */
+  maxTokens?: number;
   /** Not sent to the provider; lets the scripted model check it is answering the expected stage. */
   route?: Route;
 }

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-export { checkProject, type CheckOptions } from "./build/check.ts";
+export { checkProject, compileTests, type CheckOptions } from "./build/check.ts";
 export { formatCheckResult } from "./build/format.ts";
 export { runGradle, type GradleRunResult } from "./build/gradle.ts";
 export { parseJavacDiagnostics } from "./build/javac.ts";
