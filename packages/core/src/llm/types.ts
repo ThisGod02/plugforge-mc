@@ -27,7 +27,7 @@ export interface LlmProfile {
 }
 
 /** Agent stages that call a model; each one is routed to a profile. */
-export type Route = "clarify" | "spec" | "tests" | "test_review" | "plan" | "code" | "fix" | "fix_escalation";
+export type Route = "clarify" | "spec" | "tests" | "test_review" | "plan" | "code" | "fix" | "fix_escalation" | "report";
 
 export interface LlmConfig {
   profiles: Record<string, LlmProfile>;

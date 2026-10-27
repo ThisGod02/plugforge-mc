@@ -1,12 +1,30 @@
 {
   "description": "Canned LLM answers for `plugforge run examples/greeter/spec.json --scripted ...`. The Coder's code has a typo (L0 failure) and a wrong message (L1 failure); the first answer to the second fix has an edit that does not apply, so the retry path runs too.",
   "replies": [
-    { "route": "plan", "contentFile": "plan.json" },
-    { "route": "code", "contentFile": "GreeterPlugin.java.md" },
-    { "route": "code", "contentFile": "GreetCommand.java.md" },
-    { "route": "code", "contentFile": "GreeterAdminCommand.java.md" },
-    { "route": "code", "contentFile": "config.yml.md" },
-    { "route": "code", "contentFile": "plugin.yml.md" },
+    {
+      "route": "plan",
+      "contentFile": "plan.json"
+    },
+    {
+      "route": "code",
+      "contentFile": "GreeterPlugin.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "GreetCommand.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "GreeterAdminCommand.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "config.yml.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "plugin.yml.md"
+    },
     {
       "route": "fix",
       "content": "`getPlayerExcat` is a typo of `Bukkit.getPlayerExact`.\n\n<<<<<<< SEARCH src/main/java/dev/plugforge/greeter/GreetCommand.java\n        Player target = Bukkit.getPlayerExcat(args[0]);\n=======\n        Player target = Bukkit.getPlayerExact(args[0]);\n>>>>>>> REPLACE\n"
@@ -18,6 +36,10 @@
     {
       "route": "fix",
       "content": "<<<<<<< SEARCH src/main/java/dev/plugforge/greeter/GreeterAdminCommand.java\n        sender.sendMessage(Component.text(\"Config reloaded.\"));\n=======\n        sender.sendMessage(Component.text(\"Greeter config reloaded.\"));\n>>>>>>> REPLACE\n"
+    },
+    {
+      "route": "report",
+      "content": "{\"untested\":[{\"what\":\"Команда /greet от консоли без аргументов (сообщение consoleNeedsTarget) не проверяется\",\"where\":\"GreetCommand.java\",\"risk\":\"low\"},{\"what\":\"Сохранение изменённого greeting.message после перезапуска сервера не проверяется\",\"where\":\"GreeterPlugin.java\",\"risk\":\"medium\"}]}"
     }
   ]
 }

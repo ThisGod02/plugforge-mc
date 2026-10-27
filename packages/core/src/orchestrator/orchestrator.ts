@@ -7,6 +7,7 @@ import type { PluginSpec } from "../spec/spec.ts";
 import { writeProject } from "../stages/coder.ts";
 import type { StageContext } from "../stages/context.ts";
 import { fixProject } from "../stages/fixer.ts";
+import { reviewCoverage, specGaps, specLanguage } from "../stages/reporter.ts";
 import { reviewTests } from "../stages/testreview.ts";
 import { templateTestPath, testCoverage, writeTests, type CompileTests } from "../stages/testwriter.ts";
 import { scaffoldPlugin } from "../workspace/scaffold.ts";
@@ -15,7 +16,7 @@ import { specConformance } from "./conformance.ts";
 import { deliver, type Delivery } from "./deliver.ts";
 import type { RunLog } from "./runlog.ts";
 
-export type AgentState = "SCAFFOLD" | "TESTS_WRITE" | "CODE_WRITE" | "CHECK" | "FIX" | "TEST_REVIEW" | "DONE" | "STUCK" | "ERROR";
+export type AgentState = "SCAFFOLD" | "TESTS_WRITE" | "CODE_WRITE" | "CHECK" | "FIX" | "TEST_REVIEW" | "REPORT" | "DONE" | "STUCK" | "ERROR";
 
 export interface AgentOptions {
   spec: PluginSpec;
@@ -182,7 +183,17 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
 
       if (result.ok) {
         const t = result.test;
-        const delivery = await deliver(projectDir, spec, result, { paperVersion: o.minecraftVersion, coverage });
+        await enter("REPORT");
+        const untested = specGaps(spec, specLanguage(spec));
+        try {
+          untested.push(...(await reviewCoverage(ctx)));
+        } catch (err) {
+          // A failed audit must not cost the user a working plugin; the spec gaps still go in.
+          if (err instanceof BudgetExceededError) throw err;
+          log(`Reporter: coverage review failed (${(err as Error).message}); listing spec gaps only`);
+        }
+        log(`Reporter: ${untested.length} thing(s) not covered by tests`);
+        const delivery = await deliver(projectDir, spec, result, { paperVersion: o.minecraftVersion, coverage, untested });
         return await finish({ status: "done", reason: `L0+L1 green, ${t?.passed}/${t?.total} tests`, fixIterations, check: result, disputes, delivery });
       }
       log(`check failed: ${failureSummary(result)}`);

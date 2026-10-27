@@ -34,6 +34,7 @@ export const defaultLlmConfig: LlmConfig = {
     code: "flash",
     fix: "flash-think",
     fix_escalation: "pro",
+    report: "flash-think",
   },
   budget: { maxCostUsdPerTask: 0.5 },
 };

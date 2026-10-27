@@ -3,7 +3,19 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { TestServer, checkProject, connectBot, formatCheckResult } from "@plugforge/bench";
-import { deliver, loadSpec, readTree, scaffoldPlugin, testCoverage } from "@plugforge/core";
+import {
+  LlmGateway,
+  deliver,
+  loadLlmConfig,
+  loadSpec,
+  readTree,
+  reviewCoverage,
+  scaffoldPlugin,
+  specGaps,
+  specLanguage,
+  testCoverage,
+  type UntestedItem,
+} from "@plugforge/core";
 import {
   benchVersions,
   ensureGradle,
@@ -26,7 +38,9 @@ Commands:
   setup                 Download/verify Java, Gradle and Paper for the test bench
   smoke                 Start a test server, join with a bot, chat, stop
   new <dir>             Create a plugin project from the template (--name, --package, --description)
-  check <dir>           L0 build + plugin.yml validation + L1 MockBukkit tests (--json, --verbose)
+  check <dir>           L0 build + plugin.yml validation + L1 MockBukkit tests (--json, --verbose);
+                        on an agent project also refreshes dist/ and README (--audit re-runs the
+                        untested-behaviour review with the model)
   selftest              Run the bench fixtures and compare with expected results (--only, --keep, --verbose)
   create "<request>"    Agent from a text request: questions → spec (you approve it) → tests → code → fixes
                         (--out <dir>, --yes to take recommended answers and approve, --answers <file.json>,
@@ -61,7 +75,7 @@ async function newProject(dir: string | undefined, opts: { name?: string; packag
   log(`created ${opts.name} in ${target}`);
 }
 
-async function check(dir: string | undefined, opts: { json: boolean; verbose: boolean }) {
+async function check(dir: string | undefined, opts: { json: boolean; verbose: boolean; audit: boolean }) {
   if (!dir) throw new Error("usage: check <dir>");
   const { versions, java, gradle } = await setup();
   const result = await checkProject({
@@ -76,11 +90,21 @@ async function check(dir: string | undefined, opts: { json: boolean; verbose: bo
   // Agent-made projects carry spec.json: a green check refreshes dist/ and README.md.
   const specFile = path.join(path.resolve(dir), "spec.json");
   if (result.ok && existsSync(specFile)) {
+    const projectDir = path.resolve(dir);
     const spec = await loadSpec(specFile);
-    const tests = await readTree(path.resolve(dir), "src/test");
-    const delivery = await deliver(path.resolve(dir), spec, result, {
+    const tests = await readTree(projectDir, "src/test");
+    let untested: UntestedItem[] | undefined;
+    if (opts.audit) {
+      // Re-run the Reporter (one model call) instead of reusing .plugforge/report.json.
+      const gateway = LlmGateway.http(await loadLlmConfig());
+      const ctx = { spec, projectDir, gateway, paperApi: versions.paperApi, pluginApiVersion: versions.pluginApiVersion, log };
+      untested = [...specGaps(spec, specLanguage(spec)), ...(await reviewCoverage(ctx))];
+      log(`audit: ${untested.length} thing(s) not covered by tests, $${gateway.totals.costUsd.toFixed(4)}`);
+    }
+    const delivery = await deliver(projectDir, spec, result, {
       paperVersion: versions.minecraft,
       coverage: testCoverage(spec, tests).byCriterion,
+      untested,
     });
     if (!opts.json) printDelivery(delivery);
   }
@@ -145,6 +169,7 @@ async function main() {
       "accept-eula": { type: "boolean", default: false },
       keep: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
+      audit: { type: "boolean", default: false },
       verbose: { type: "boolean", short: "v", default: false },
       name: { type: "string" },
       package: { type: "string" },
@@ -175,7 +200,7 @@ async function main() {
       await newProject(positionals[1], { name: values.name, packageName: values.package, description: values.description });
       break;
     case "check":
-      await check(positionals[1], { json: values.json!, verbose: values.verbose! });
+      await check(positionals[1], { json: values.json!, verbose: values.verbose!, audit: values.audit! });
       break;
     case "selftest": {
       const { versions, java, gradle } = await setup();

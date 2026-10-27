@@ -5,19 +5,46 @@
       "route": "clarify",
       "content": "{\"questions\": [{\"id\": \"q1\", \"question\": \"Who may reload the config?\", \"options\": [\"Ops only (greeter.admin, default op)\", \"Everyone\"]}, {\"id\": \"q2\", \"question\": \"What if the target player is offline?\", \"options\": [\"Tell the sender the player was not found\", \"Silently ignore\"]}]}"
     },
-    { "route": "clarify", "content": "{\"questions\": []}" },
-    { "route": "spec", "contentFile": "../spec.json" },
-    { "route": "tests", "contentFile": "tests-broken.md" },
+    {
+      "route": "clarify",
+      "content": "{\"questions\": []}"
+    },
+    {
+      "route": "spec",
+      "contentFile": "../spec.json"
+    },
+    {
+      "route": "tests",
+      "contentFile": "tests-broken.md"
+    },
     {
       "route": "tests",
       "content": "<<<<<<< SEARCH src/test/java/dev/plugforge/greeter/GreeterAcceptanceTest.java\nimport org.mockbukkit.mockbukkit.ServerMock;\n=======\nimport org.mockbukkit.mockbukkit.ServerMock;\nimport org.mockbukkit.mockbukkit.entity.PlayerMock;\n>>>>>>> REPLACE\n"
     },
-    { "route": "plan", "contentFile": "plan.json" },
-    { "route": "code", "contentFile": "GreeterPlugin.java.md" },
-    { "route": "code", "contentFile": "GreetCommand.java.md" },
-    { "route": "code", "contentFile": "GreeterAdminCommand.java.md" },
-    { "route": "code", "contentFile": "config.yml.md" },
-    { "route": "code", "contentFile": "plugin.yml.md" },
+    {
+      "route": "plan",
+      "contentFile": "plan.json"
+    },
+    {
+      "route": "code",
+      "contentFile": "GreeterPlugin.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "GreetCommand.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "GreeterAdminCommand.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "config.yml.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "plugin.yml.md"
+    },
     {
       "route": "fix",
       "content": "`getPlayerExcat` is a typo of `Bukkit.getPlayerExact`.\n\n<<<<<<< SEARCH src/main/java/dev/plugforge/greeter/GreetCommand.java\n        Player target = Bukkit.getPlayerExcat(args[0]);\n=======\n        Player target = Bukkit.getPlayerExact(args[0]);\n>>>>>>> REPLACE\n"
@@ -29,6 +56,10 @@
     {
       "route": "test_review",
       "content": "VERDICT: KEEP\nThe spec's `reloaded` message is exactly 'Greeter config reloaded.'; the test matches the spec."
+    },
+    {
+      "route": "report",
+      "content": "{\"untested\":[{\"what\":\"Команда /greet от консоли без аргументов (сообщение consoleNeedsTarget) не проверяется\",\"where\":\"GreetCommand.java\",\"risk\":\"low\"},{\"what\":\"Сохранение изменённого greeting.message после перезапуска сервера не проверяется\",\"where\":\"GreeterPlugin.java\",\"risk\":\"medium\"}]}"
     }
   ]
 }

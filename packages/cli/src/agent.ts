@@ -203,12 +203,18 @@ async function execute(
 }
 
 export function printDelivery(d: Delivery): void {
+  const high = d.untested.filter((u) => u.risk === "high");
+  const shown = [...high, ...d.untested.filter((u) => u.risk === "medium")].slice(0, 5);
   console.log(
     [
       "",
       `PLUGIN   ${d.jar}`,
       "         copy it into your server's plugins/ folder and restart the server",
       `README   ${d.readme}`,
+      d.untested.length
+        ? `UNTESTED ${d.untested.length} thing(s) the tests do not prove (${high.length} high risk), listed in the README:`
+        : "UNTESTED nothing found",
+      ...shown.map((u) => `         [${u.risk}] ${u.what}${u.where !== "spec" ? ` (${u.where})` : ""}`),
     ].join("\n"),
   );
 }
