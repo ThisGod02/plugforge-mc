@@ -86,15 +86,38 @@ export function renderSpec(spec: PluginSpec): string {
   return out.join("\n");
 }
 
+/** What a phase adds to the previous phase's spec. */
+export function renderSpecDiff(prev: PluginSpec, next: PluginSpec): string {
+  const out: string[] = [];
+  const add = (title: string, lines: string[]) => {
+    if (lines.length) out.push("", `${title}:`, ...lines.map((l) => `  ${l}`));
+  };
+  const known = <T,>(xs: T[] | undefined, key: (x: T) => string) => new Set((xs ?? []).map(key));
+  const commands = known(prev.commands, (c) => `${c.name}|${c.usage}`);
+  add("New or changed commands", next.commands.filter((c) => !commands.has(`${c.name}|${c.usage}`)).map((c) => `${c.usage}  — ${c.description}${c.permission ?? c.checksPermission ? `  [${c.permission ?? c.checksPermission}]` : ""}`));
+  const perms = known(prev.permissions, (p) => p.node);
+  add("New permissions", (next.permissions ?? []).filter((p) => !perms.has(p.node)).map((p) => `${p.node}  default: ${p.default}`));
+  const keys = known(prev.config, (c) => c.key);
+  add("New settings", (next.config ?? []).filter((c) => !keys.has(c.key)).map((c) => `${c.key}: ${JSON.stringify(c.default)}  (${c.type})${c.description ? `  — ${c.description}` : ""}`));
+  const guis = known(prev.guis, (g) => g.id);
+  add("New menus", (next.guis ?? []).filter((g) => !guis.has(g.id)).flatMap((g) => [`"${g.title}" (${g.rows} rows)`, ...g.items.map((i) => `  ${i.name} (${i.material}) — ${i.action}`)]));
+  add("New messages", Object.entries(next.messages ?? {}).filter(([k]) => prev.messages?.[k] === undefined).map(([k, v]) => `${k}: ${v}`));
+  const ids = known(prev.acceptance, (a) => a.id);
+  add("New acceptance criteria", next.acceptance.filter((a) => !ids.has(a.id)).map((a) => `${a.id}  ${a.text}`));
+  const assumptions = new Set(prev.assumptions ?? []);
+  add("New assumptions", (next.assumptions ?? []).filter((a) => !assumptions.has(a)).map((a) => `- ${a}`));
+  return out.join("\n").trimStart() || "(nothing new)";
+}
+
 export type ApprovalDecision = { action: "approve" } | { action: "revise"; feedback: string } | { action: "cancel" };
 
-/** Asks the user to approve the spec, request changes, or cancel. */
-export async function askApproval(spec: PluginSpec): Promise<ApprovalDecision> {
+/** Asks the user to approve the spec (or a plan), request changes, or cancel. */
+export async function askApproval(spec: PluginSpec | undefined, what = "this spec"): Promise<ApprovalDecision> {
   for (;;) {
-    const a = (await ask("\nApprove this spec? [Y]es / [e]dit (describe changes) / [j]son / [n]o: ")).toLowerCase();
+    const a = (await ask(`\nApprove ${what}? [Y]es / [e]dit (describe changes)${spec ? " / [j]son" : ""} / [n]o: `)).toLowerCase();
     if (a === "" || a === "y" || a === "yes" || a === "д" || a === "да") return { action: "approve" };
     if (a === "n" || a === "no" || a === "н" || a === "нет") return { action: "cancel" };
-    if (a === "j" || a === "json") {
+    if (spec && (a === "j" || a === "json")) {
       console.log(JSON.stringify(spec, null, 2));
       continue;
     }
@@ -103,6 +126,6 @@ export async function askApproval(spec: PluginSpec): Promise<ApprovalDecision> {
       if (feedback) return { action: "revise", feedback };
       continue;
     }
-    console.log("Please answer y, e, j or n.");
+    console.log(`Please answer y, e${spec ? ", j" : ""} or n.`);
   }
 }

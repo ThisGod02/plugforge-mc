@@ -11,11 +11,11 @@ Write one file of this plugin.
 ## File plan
 {{plan}}
 
-## Files written so far
+## Current project code
 {{written}}
 
 Now write the complete content of `{{path}}`.
 Purpose: {{purpose}}
 {{existing}}
 
-Use exactly the class, method and file names from the plan and from the files written so far. Answer with the whole file in a single fenced code block and nothing else.
+Use exactly the class, method and file names from the plan and from the current code; everything the current code provides that other files or tests rely on must keep working. Answer with the whole file in a single fenced code block and nothing else.

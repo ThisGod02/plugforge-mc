@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Log } from "@plugforge/runtime";
 import type { LlmGateway } from "../llm/gateway.ts";
 import type { ChatMessage } from "../llm/types.ts";
-import type { PluginSpec } from "../spec/spec.ts";
+import type { AcceptanceCriterion, PluginSpec } from "../spec/spec.ts";
 import { readTree, renderFiles } from "../workspace/files.ts";
 
 const promptsDir = fileURLToPath(new URL("../../prompts/", import.meta.url));
@@ -16,10 +16,31 @@ export interface LlmContext {
   log: Log;
 }
 
+/** The build phase a stage works in; absent for a single-phase build. */
+export interface PhaseScope {
+  /** 0-based. */
+  index: number;
+  total: number;
+  title: string;
+  goal: string;
+  /** Criteria this phase adds; earlier ones already have tests and code. */
+  newCriteria: AcceptanceCriterion[];
+}
+
 /** Stages that work on a project: the spec and the project on disk on top of the model. */
 export interface StageContext extends LlmContext {
+  /** Cumulative spec (the whole plugin up to the current phase). */
   spec: PluginSpec;
   projectDir: string;
+  phase?: PhaseScope;
+}
+
+/** True when the phase builds on code from earlier phases. */
+export const extending = (ctx: StageContext) => (ctx.phase?.index ?? 0) > 0;
+
+/** "AC9 text" lines of what the current phase adds (or the whole spec). */
+export function renderCriteria(ctx: StageContext): string {
+  return (ctx.phase?.newCriteria ?? ctx.spec.acceptance).map((a) => `- ${a.id}: ${a.text}`).join("\n");
 }
 
 export const mainClassPath = (spec: PluginSpec) => `src/main/java/${spec.package.replaceAll(".", "/")}/${spec.mainClass}.java`;

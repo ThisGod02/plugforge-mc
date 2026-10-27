@@ -12,6 +12,8 @@ import {
   llmConfigPath,
   loadLlmConfig,
   loadSpec,
+  planPhases,
+  renderPlan,
   resolveApiKey,
   runAgent,
   storeApiKey,
@@ -20,10 +22,11 @@ import {
   type Delivery,
   type LlmCall,
   type LlmContext,
+  type PhasePlanItem,
   type PluginSpec,
 } from "@plugforge/core";
 import type { GradleInstall, JavaRuntime, Log, PaperInstall } from "@plugforge/runtime";
-import { answerQuestions, ask, askApproval, interactive, renderSpec, type ScriptedAnswers } from "./prompt.ts";
+import { answerQuestions, ask, askApproval, interactive, renderSpec, renderSpecDiff, type ScriptedAnswers } from "./prompt.ts";
 
 /** Bench and logging shared by the agent commands. */
 export interface AgentEnv {
@@ -109,31 +112,71 @@ export async function createCommand(o: CreateCommandOptions): Promise<boolean> {
     answers.push(...(await answerQuestions(questions, { scripted: scriptedAnswers, useDefaults: o.yes })));
   }
 
-  // SPEC + SPEC_APPROVAL
-  await session.runLog.event("SPEC");
-  let spec = await writeSpec(ctx, { request, answers });
   const revisions: string[] = [];
-  for (;;) {
-    console.log(`\n${"-".repeat(72)}\n${renderSpec(spec)}\n${"-".repeat(72)}`);
-    if (o.yes) {
-      o.log("spec approved (--yes)");
-      break;
+  const cancelled = async (what: string, draft: unknown) => {
+    await session.runLog.write({ status: "cancelled", intake: { request, answers, revisions }, draft, totals: session.gateway.totals });
+    o.log(`cancelled at ${what}; the draft is in ${path.join(session.runLog.dir, "run.json")}`);
+    return false;
+  };
+  /** Shows a draft and loops until the user approves it, asks for changes, or cancels. */
+  const approve = async <T,>(what: string, draft: T, show: (d: T) => string, revise: (d: T, feedback: string) => Promise<T>, isSpec = false): Promise<T | undefined> => {
+    for (let d = draft; ; ) {
+      console.log(`\n${"-".repeat(72)}\n${show(d)}\n${"-".repeat(72)}`);
+      if (o.yes) {
+        o.log(`${what} approved (--yes)`);
+        return d;
+      }
+      if (!interactive()) throw new Error(`the ${what} needs your approval: run in a terminal, or pass --yes`);
+      const decision = await askApproval(isSpec ? (d as unknown as PluginSpec) : undefined, `the ${what}`);
+      if (decision.action === "approve") return d;
+      if (decision.action === "cancel") return undefined;
+      if (revisions.length >= 8) throw new Error("too many revisions; edit spec.json by hand and use `plugforge run`");
+      revisions.push(`${what}: ${decision.feedback}`);
+      await session.runLog.event("REVISE", { what, feedback: decision.feedback });
+      d = await revise(d, decision.feedback);
     }
-    if (!interactive()) throw new Error("the spec needs your approval: run in a terminal, or pass --yes");
-    const decision = await askApproval(spec);
-    if (decision.action === "approve") break;
-    if (decision.action === "cancel") {
-      await session.runLog.write({ status: "cancelled", intake: { request, answers, revisions }, spec, totals: session.gateway.totals });
-      o.log(`cancelled; the draft spec is in ${session.runLog.dir}\\run.json`);
-      return false;
-    }
-    if (revisions.length >= 5) throw new Error("too many revisions; edit spec.json by hand and use `plugforge run`");
-    revisions.push(decision.feedback);
-    await session.runLog.event("SPEC_REVISE", { feedback: decision.feedback });
-    spec = await writeSpec(ctx, { request, answers, revise: { spec, feedback: decision.feedback } });
-  }
-  await session.runLog.event("SPEC_APPROVED");
-  return execute(spec, session, o, { out: o.out, maxFix: o.maxFix, intake: { request, answers, revisions } });
+  };
+
+  // PHASES: big requests are built in steps, each on top of the previous one.
+  await session.runLog.event("PHASES");
+  const plan = await approve(
+    "build plan",
+    await planPhases(ctx, { request, answers }),
+    (p) => (p.length === 1 ? `Build plan: one phase — ${p[0]!.title}` : `Build plan: ${p.length} phases, each on top of the previous one\n\n${renderPlan(p)}`),
+    (p, feedback) => planPhases(ctx, { request, answers, revise: { plan: p, feedback } }),
+  );
+  if (!plan) return cancelled("the build plan", undefined);
+  const multi = plan.length > 1;
+  const phaseInfo = (index: number) => ({ index, plan });
+
+  // SPEC + SPEC_APPROVAL for the first phase; later phases are written and approved as they start.
+  await session.runLog.event("SPEC");
+  const title = (i: number) => (multi ? `Phase ${i + 1}/${plan.length}: ${plan[i]!.title}\n\n` : "");
+  const first = await approve(
+    multi ? "phase 1 spec" : "spec",
+    await writeSpec(ctx, { request, answers, phase: phaseInfo(0) }),
+    (s) => title(0) + renderSpec(s),
+    (s, feedback) => writeSpec(ctx, { request, answers, phase: phaseInfo(0), revise: { spec: s, feedback } }),
+    true,
+  );
+  if (!first) return cancelled("the spec", undefined);
+  await session.runLog.event("SPEC_APPROVED", { phase: 1 });
+
+  const nextSpec = async (index: number, previous: PluginSpec): Promise<PluginSpec> => {
+    const what = `phase ${index + 1} spec`;
+    const spec = await approve(
+      what,
+      await writeSpec(ctx, { request, answers, phase: phaseInfo(index), previous }),
+      (s) => `${title(index)}Changes on top of phase ${index}:\n\n${renderSpecDiff(previous, s)}`,
+      (s, feedback) => writeSpec(ctx, { request, answers, phase: phaseInfo(index), previous, revise: { spec: s, feedback } }),
+      true,
+    );
+    // Cancelling a later phase keeps what is built: the orchestrator rolls back and delivers it.
+    if (!spec) throw new Error(`cancelled by the user before phase ${index + 1}`);
+    await session.runLog.event("SPEC_APPROVED", { phase: index + 1 });
+    return spec;
+  };
+  return execute(first, session, o, { out: o.out, maxFix: o.maxFix, intake: { request, answers, revisions }, phases: plan, nextSpec: multi ? nextSpec : undefined });
 }
 
 async function openSession(scriptedFile: string | undefined, log: Log): Promise<Session> {
@@ -161,7 +204,14 @@ async function execute(
   spec: PluginSpec,
   session: Session,
   env: AgentEnv,
-  opts: { out?: string; testsDir?: string; maxFix?: number; intake?: Record<string, unknown> },
+  opts: {
+    out?: string;
+    testsDir?: string;
+    maxFix?: number;
+    intake?: Record<string, unknown>;
+    phases?: PhasePlanItem[];
+    nextSpec?: (index: number, previous: PluginSpec) => Promise<PluginSpec>;
+  },
 ): Promise<boolean> {
   const { gateway, runLog, scripted } = session;
   const projectDir = opts.out ? path.resolve(opts.out) : defaultProjectDir(spec.name);
@@ -172,7 +222,8 @@ async function execute(
   const check = async (dir: string) => {
     const l1 = await checkProject({ ...bench, projectDir: dir, pluginApiVersion: env.pluginApiVersion });
     if (!env.live) return l1;
-    const outcome = await liveStage(l1, { ...env, projectDir: dir, criteria: spec.acceptance.map((a) => a.id) });
+    // Scenario `covers` were validated when written; the spec grows between phases.
+    const outcome = await liveStage(l1, { ...env, projectDir: dir });
     if (outcome.skipped && !skipNoted) {
       skipNoted = true;
       env.log(`warning: live tests skipped: ${outcome.skipped}`);
@@ -195,6 +246,8 @@ async function execute(
     check,
     compileTests: (dir) => compileTests({ ...bench, projectDir: dir }),
     liveScenarios: env.live,
+    phases: opts.phases,
+    nextSpec: opts.nextSpec,
   });
 
   if (result.check) console.log(`\n${formatCheckResult(result.check)}`);
@@ -208,10 +261,19 @@ async function execute(
       `fix rounds   ${result.fixIterations}`,
       `llm calls    ${t.calls}, ${t.promptTokens} prompt (${t.cacheHitTokens} cached) + ${t.completionTokens} completion tokens, ${usd(t.costUsd)}${scripted ? " (scripted, estimated)" : ""}`,
       `run log      ${runLog.dir}`,
+      ...(result.phases.length > 1
+        ? [
+            "phases",
+            ...result.phases.map(
+              (p, i) => `  ${i + 1}. ${p.status === "done" ? "done  " : p.status === "failed" ? "FAILED" : "—     "} ${p.title}${p.criteria.length ? ` (${p.criteria.join(", ")})` : ""}${p.reason ? ` — ${p.reason.split("\n")[0]}` : ""}`,
+            ),
+          ]
+        : []),
       ...(coverage.length ? ["coverage", ...coverage.map((c) => `  ${c}`)] : []),
       ...result.disputes.map((d) => `TEST DISPUTE ${d}`),
     ].join("\n"),
   );
+  if (result.status === "partial") console.log("\nPARTIAL  a later phase failed; the plugin below is the last green phase (see README → phases).");
   if (result.delivery) printDelivery(result.delivery);
   else console.log("\nNo plugin jar was delivered: the checks are not green. The project and the run log show where it stopped.");
   if (scripted && scripted.remaining > 0) env.log(`note: ${scripted.remaining} scripted replies were not used`);

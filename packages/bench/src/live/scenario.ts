@@ -53,6 +53,7 @@ const SERVER_ACTIONS = [
   "teleport",
   "damage",
   "expect_state",
+  "expect_entities",
   "wait",
   "restart",
   "quit",
@@ -125,6 +126,18 @@ function checkArg(action: Action, arg: unknown, players: Set<string>): string[] 
       return isObj(arg) && isNum(arg.x) && isNum(arg.y) && isNum(arg.z) ? [...keys(arg, ["player", "x", "y", "z"]), ...player(arg.player)] : ["teleport needs {player, x, y, z}"];
     case "damage":
       return isObj(arg) && isNum(arg.amount) && arg.amount > 0 ? [...keys(arg, ["player", "amount"]), ...player(arg.player)] : ["damage needs {player, amount}"];
+    case "expect_entities": {
+      if (!isObj(arg)) return ["expect_entities needs {player, radius, type, count | min | max}"];
+      const counts = ["count", "min", "max"].filter((k) => arg[k] !== undefined);
+      return [
+        ...keys(arg, ["player", "radius", "type", "name_contains", "count", "min", "max", "within"]),
+        ...player(arg.player),
+        ...(arg.radius === undefined || (isNum(arg.radius) && arg.radius > 0 && arg.radius <= 64) ? [] : ["'radius' must be 1-64 blocks"]),
+        ...(arg.type === undefined || (isStr(arg.type) && ITEM.test(arg.type)) ? [] : ["'type' is a vanilla entity id like zombie or villager"]),
+        ...(counts.length ? [] : ["needs count, min or max"]),
+        ...counts.filter((k) => !(Number.isInteger(arg[k]) && (arg[k] as number) >= 0)).map((k) => `'${k}' must be a whole number`),
+      ];
+    }
     case "expect_state": {
       if (!isObj(arg)) return ["expect_state needs {player, ...checks}"];
       const allowed = ["player", "online", "health", "health_below", "food", "gamemode", "near", "has_item", "lacks_item", "open_title_contains", "within"];
@@ -159,7 +172,7 @@ function parseSteps(raw: unknown, where: string, players: string[], errors: stri
     let arg = s[action];
     // Player-targeted server actions: `as` (which models write naturally) names the player, and a
     // single-player scenario needs neither.
-    const targeted = ["perm", "give", "teleport", "damage", "expect_state"].includes(action);
+    const targeted = ["perm", "give", "teleport", "damage", "expect_state", "expect_entities"].includes(action);
     if (!isBotAction(action) && as !== undefined) {
       if (!targeted || !isObj(arg)) return void errors.push(`${at}: '${action}' is a server action and takes no 'as'`);
       if (arg.player !== undefined && arg.player !== as) return void errors.push(`${at}: 'as: ${as}' and 'player: ${String(arg.player)}' disagree`);

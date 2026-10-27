@@ -11,6 +11,10 @@
     },
     {
       "route": "spec",
+      "content": "{\"phases\":[{\"title\":\"Greeter\",\"goal\":\"/greet with a configurable message and /greeter reload for admins\"}]}"
+    },
+    {
+      "route": "spec",
       "contentFile": "../spec.json"
     },
     {

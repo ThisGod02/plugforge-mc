@@ -286,6 +286,8 @@ class ScenarioRun {
         return;
       case "expect_state":
         return this.expectState(step.arg as Record<string, unknown>);
+      case "expect_entities":
+        return this.expectEntities(step.arg as Record<string, unknown>);
       case "wait":
         await sleep((step.arg as number) * 1000);
         return;
@@ -335,6 +337,31 @@ class ScenarioRun {
       return last.length === 0 ? true : undefined;
     });
     if (!ok) throw new StepFailure(`${player}: ${last.join("; ")}`);
+    return undefined;
+  }
+
+  private async expectEntities(c: Record<string, unknown>): Promise<undefined> {
+    const radius = typeof c.radius === "number" ? c.radius : 16;
+    const describe = () =>
+      `${c.count !== undefined ? `exactly ${c.count}` : [c.min !== undefined ? `at least ${c.min}` : "", c.max !== undefined ? `at most ${c.max}` : ""].filter(Boolean).join(" and ")}` +
+      ` ${c.type ?? "entities"}${c.name_contains ? ` named "…${c.name_contains}…"` : ""} within ${radius} blocks of ${c.player}`;
+    let seen: { type: string; name?: string }[] = [];
+    const ok = await this.poll(typeof c.within === "number" ? c.within : 5, async () => {
+      const out = await this.server.command(`pfh entities ${c.player} ${radius}`);
+      try {
+        seen = JSON.parse(out.trim()) as { type: string; name?: string }[];
+      } catch {
+        throw new StepFailure(`harness answered: ${out.trim().slice(0, 200)}`);
+      }
+      const n = seen.filter((e) => (!c.type || e.type === c.type) && (!c.name_contains || (e.name ?? "").includes(String(c.name_contains)))).length;
+      const fine = (c.count === undefined || n === c.count) && (c.min === undefined || n >= (c.min as number)) && (c.max === undefined || n <= (c.max as number));
+      return fine ? true : undefined;
+    });
+    if (!ok) {
+      const tally = new Map<string, number>();
+      for (const e of seen) tally.set(e.name ? `${e.type} "${e.name}"` : e.type, (tally.get(e.name ? `${e.type} "${e.name}"` : e.type) ?? 0) + 1);
+      throw new StepFailure(`expected ${describe()}; found ${tally.size ? [...tally].map(([k, n]) => `${n}× ${k}`).join(", ") : "nothing"}`);
+    }
     return undefined;
   }
 

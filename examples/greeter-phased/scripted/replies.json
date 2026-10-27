@@ -1,0 +1,81 @@
+{
+  "description": "Greeter built in two phases: greeting, then admin reload on top (with a wrong reload message the Fixer repairs). With --max-fix 0 phase 2 fails and the run rolls back to phase 1.",
+  "replies": [
+    {
+      "route": "clarify",
+      "content": "{\"questions\": []}"
+    },
+    {
+      "route": "spec",
+      "content": "{\"phases\":[{\"title\":\"Greeting\",\"goal\":\"/greet and /greet <player> with a configurable message\"},{\"title\":\"Admin reload\",\"goal\":\"/greeter reload for admins, with usage and no-permission messages\"}]}"
+    },
+    {
+      "route": "spec",
+      "contentFile": "spec-phase1.json"
+    },
+    {
+      "route": "tests",
+      "contentFile": "tests-phase1.md"
+    },
+    {
+      "route": "scenarios",
+      "content": "FILE: src/test/scenarios/greet-live.yml\n```yaml\nid: greet-live\ncovers: [AC2, AC3]\nplayers: [alice, bob]\nsteps:\n  - as: alice\n    command: /greet bob\n  - as: bob\n    expect_chat: \"Hello, bob!\"\n  - as: alice\n    expect_chat: \"Greeted bob.\"\n```\n"
+    },
+    {
+      "route": "plan",
+      "content": "{\"files\":[{\"path\":\"src/main/java/dev/plugforge/greeter/GreetCommand.java\",\"purpose\":\"/greet executor\"},{\"path\":\"src/main/java/dev/plugforge/greeter/GreeterPlugin.java\",\"purpose\":\"main class, greetingFor(name)\"},{\"path\":\"src/main/resources/config.yml\",\"purpose\":\"greeting.message\"},{\"path\":\"src/main/resources/plugin.yml\",\"purpose\":\"descriptor with /greet\"}]}"
+    },
+    {
+      "route": "code",
+      "contentFile": "p1-GreetCommand.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "p1-GreeterPlugin.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "config.yml.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "p1-plugin.yml.md"
+    },
+    {
+      "route": "spec",
+      "contentFile": "../../greeter/spec.json"
+    },
+    {
+      "route": "tests",
+      "contentFile": "tests-phase2.md"
+    },
+    {
+      "route": "scenarios",
+      "content": "FILE: src/test/scenarios/admin-reload-live.yml\n```yaml\nid: admin-reload-live\ncovers: [AC5, AC6]\nplayers: [alice, bob]\nsetup:\n  - op: alice\nsteps:\n  - as: alice\n    command: /greeter reload\n  - as: alice\n    expect_chat: \"Greeter config reloaded.\"\n  - as: bob\n    command: /greeter reload\n  - as: bob\n    expect_chat: \"You don't have permission to do that.\"\n```\n"
+    },
+    {
+      "route": "plan",
+      "content": "{\"files\":[{\"path\":\"src/main/java/dev/plugforge/greeter/GreeterAdminCommand.java\",\"purpose\":\"new: /greeter reload with greeter.admin check\"},{\"path\":\"src/main/java/dev/plugforge/greeter/GreeterPlugin.java\",\"purpose\":\"register the admin command\"},{\"path\":\"src/main/resources/plugin.yml\",\"purpose\":\"add /greeter and greeter.admin\"}]}"
+    },
+    {
+      "route": "code",
+      "contentFile": "p2-GreeterAdminCommand.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "p2-GreeterPlugin.java.md"
+    },
+    {
+      "route": "code",
+      "contentFile": "p2-plugin.yml.md"
+    },
+    {
+      "route": "fix",
+      "content": "The reload message must be exactly the spec text.\n\n<<<<<<< SEARCH src/main/java/dev/plugforge/greeter/GreeterAdminCommand.java\n        sender.sendMessage(Component.text(\"Config reloaded.\"));\n=======\n        sender.sendMessage(Component.text(\"Greeter config reloaded.\"));\n>>>>>>> REPLACE\n"
+    },
+    {
+      "route": "report",
+      "content": "{\"untested\":[{\"what\":\"Reload with a broken config.yml is not tested\",\"where\":\"GreeterAdminCommand.java\",\"risk\":\"low\"}]}"
+    }
+  ]
+}

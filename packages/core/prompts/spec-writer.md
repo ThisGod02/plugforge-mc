@@ -5,7 +5,7 @@ Write the specification (spec.json) for this plugin.
 
 ## Clarifications
 {{answers}}
-{{revision}}
+{{phase}}{{revision}}
 ## JSON Schema
 ```json
 {{schema}}
@@ -17,8 +17,8 @@ Rules:
 - Each command has a `usage`. Use `permission` on a command only if Bukkit's default "no permission" text is acceptable; when the plugin must answer with its own `noPermission` message, put the node in the command's `checksPermission` instead (the code checks it) and list it in `permissions`.
 - Every value server owners might tune goes to `config` with a default.
 - Every inventory menu goes to `guis`: exact title, rows, and each clickable item with its exact name, Bukkit material and what the click does. Live tests find menus and buttons by these names, before any code exists.
-- `acceptance`: 3-12 criteria with ids AC1, AC2, ... Each one is a single observable behaviour that a MockBukkit unit test can check: "who does what" → "exact result" (message key and text, config value, inventory/health/location/gamemode change, permission outcome). Cover the main success path of every command and the important failure paths (no permission, wrong arguments, unknown/offline player, console where it matters).
-- If the request needs something the test bench cannot provide yet (Vault economy, databases, web APIs, custom textures, GUIs driven by clicks are fine), make the simplest faithful version and say what you simplified in `assumptions`.
+- `acceptance`: criteria with ids AC1, AC2, ... ({{criteriaRule}}) Each one is a single observable behaviour that a unit test (MockBukkit) or a live scenario with bots on a real server can check: "who does what" → "exact result" (message key and text, config value, inventory/health/location/gamemode change, permission outcome, a menu and what a click does, mobs that appear, data after a restart). Cover the main success path of every command and the important failure paths (no permission, wrong arguments, unknown/offline player, console where it matters).
+- Build what the user asked for. Only things the test bench truly cannot provide (Vault or other plugins, external databases, web APIs, custom textures) may be replaced by the simplest faithful version (e.g. the plugin keeps its own coins); say what you replaced in `assumptions`.
 - `assumptions`: every default you chose that the user did not state, in the user's language, one short sentence each.
 
 Answer with the JSON object only.

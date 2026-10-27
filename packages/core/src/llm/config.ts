@@ -37,7 +37,8 @@ export const defaultLlmConfig: LlmConfig = {
     fix_escalation: "pro",
     report: "flash-think",
   },
-  budget: { maxCostUsdPerTask: 0.5 },
+  // Per request, over all build phases.
+  budget: { maxCostUsdPerTask: 2 },
 };
 
 export const llmConfigPath = () => path.join(plugforgeHome(), "llm.json");

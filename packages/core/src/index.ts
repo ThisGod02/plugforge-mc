@@ -3,7 +3,8 @@ export { editablePath, lockedFingerprint, readTree } from "./workspace/files.ts"
 export { loadSpec, validateSpec, type PluginSpec } from "./spec/spec.ts";
 export { schemaErrors, specSchema } from "./spec/schema.ts";
 export { clarify, renderAnswers, type Answer, type ClarifyQuestion } from "./stages/clarifier.ts";
-export { writeSpec } from "./stages/specwriter.ts";
+export { MAX_NEW_CRITERIA, extensionErrors, writeSpec } from "./stages/specwriter.ts";
+export { MAX_PHASES, planPhases, renderPlan, type PhasePlanItem } from "./stages/phaseplanner.ts";
 export { testCoverage, writeTests, type CompileTests } from "./stages/testwriter.ts";
 export type { LlmContext } from "./stages/context.ts";
 export { OpenAiCompatibleModel, costUsd, LlmHttpError } from "./llm/client.ts";
@@ -13,7 +14,7 @@ export { BudgetExceededError, LlmGateway, type LlmCall, type LlmTotals } from ".
 export { ScriptedModel } from "./llm/scripted.ts";
 export type { ChatMessage, ChatModel, LlmConfig, LlmProfile, Route } from "./llm/types.ts";
 export { applyEdits, parseEdits, type FileEdit } from "./stages/protocol.ts";
-export { runAgent, failureSignature, isEmptyDir, type AgentOptions, type AgentResult } from "./orchestrator/orchestrator.ts";
+export { runAgent, failureSignature, isEmptyDir, type AgentOptions, type AgentResult, type PhaseOutcome } from "./orchestrator/orchestrator.ts";
 export { RunLog } from "./orchestrator/runlog.ts";
 export { deliver, renderReadme, type Delivery } from "./orchestrator/deliver.ts";
 export { reviewCoverage, specGaps, specLanguage, type UntestedItem } from "./stages/reporter.ts";

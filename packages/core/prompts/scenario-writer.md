@@ -7,7 +7,7 @@ Write live scenarios for this plugin. They run after the unit tests pass and dec
 
 ## Unit tests already written (MockBukkit)
 {{tests}}
-
+{{scope}}
 {{dsl}}
 
 Write 1-{{max}} scenarios for behaviour unit tests cannot prove or that matters most to players:

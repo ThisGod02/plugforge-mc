@@ -1,4 +1,5 @@
-import { cp, readdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadScenarios, type CheckResult, type Diagnostic } from "@plugforge/bench";
 import type { Log } from "@plugforge/runtime";
@@ -7,6 +8,7 @@ import type { PluginSpec } from "../spec/spec.ts";
 import { writeProject } from "../stages/coder.ts";
 import type { StageContext } from "../stages/context.ts";
 import { fixProject } from "../stages/fixer.ts";
+import type { PhasePlanItem } from "../stages/phaseplanner.ts";
 import { reviewCoverage, specGaps, specLanguage } from "../stages/reporter.ts";
 import { writeScenarios } from "../stages/scenariowriter.ts";
 import { reviewTests } from "../stages/testreview.ts";
@@ -19,33 +21,41 @@ import type { RunLog } from "./runlog.ts";
 
 export type AgentState =
   | "SCAFFOLD"
+  | "PHASE"
   | "TESTS_WRITE"
   | "SCENARIOS_WRITE"
   | "CODE_WRITE"
   | "CHECK"
   | "FIX"
   | "TEST_REVIEW"
+  | "ROLLBACK"
   | "REPORT"
   | "DONE"
+  | "PARTIAL"
   | "STUCK"
   | "ERROR";
 
 export interface AgentOptions {
+  /** Spec of the first (or only) phase. */
   spec: PluginSpec;
-  /** Overlay with ready-made tests, laid out like the project (`src/test/java/...`). Without it TestWriter writes them. */
+  /** Build phases (PLAN.md: big requests are built in steps). Default: one phase. */
+  phases?: PhasePlanItem[];
+  /** Cumulative spec for phase `index` (>= 1) on top of the previous phase's; may ask the user. */
+  nextSpec?: (index: number, previous: PluginSpec) => Promise<PluginSpec>;
+  /** Overlay with ready-made tests, laid out like the project (`src/test/java/...`). Single-phase only. */
   testsDir?: string;
   /** Compiles tests without running them; required when TestWriter writes the tests. */
   compileTests?: CompileTests;
   /** Request, questions and answers that produced the spec; stored in run.json. */
   intake?: Record<string, unknown>;
-  /** Fixer TEST_DISPUTEs sent to TestReview per run (default 2). */
+  /** Fixer TEST_DISPUTEs sent to TestReview per phase (default 2). */
   maxTestReviews?: number;
   /** Write live scenarios (L2) next to the tests TestWriter writes; `check` is expected to play them. */
   liveScenarios?: boolean;
   /** Must not exist or be empty. */
   projectDir: string;
   gateway: LlmGateway;
-  /** L0 + validation + L1 on the project (the bench's checkProject). */
+  /** L0 + validation + L1 (+ L2) on the project. */
   check: (projectDir: string) => Promise<CheckResult>;
   runLog: RunLog;
   log: Log;
@@ -53,7 +63,7 @@ export interface AgentOptions {
   pluginApiVersion: string;
   /** Minecraft/Paper version the plugin was tested on, for the README. */
   minecraftVersion: string;
-  /** PLAN.md §3: max_fix_iterations, 8 by default. */
+  /** Fixer rounds per phase (default 10). */
   maxFixIterations?: number;
   /** Same failure this many times in a row → use the fix_escalation route. */
   escalateAfter?: number;
@@ -61,16 +71,29 @@ export interface AgentOptions {
   stuckAfter?: number;
 }
 
-export interface AgentResult {
-  status: "done" | "stuck" | "error";
+export interface PhaseOutcome {
+  title: string;
+  status: "done" | "failed" | "not_started";
   reason?: string;
-  /** Number of Fixer rounds. */
+  fixIterations: number;
+  /** Acceptance ids this phase added. */
+  criteria: string[];
+}
+
+export interface AgentResult {
+  /** "partial": some phases are done and delivered, a later one failed and was rolled back. */
+  status: "done" | "partial" | "stuck" | "error";
+  reason?: string;
+  /** Fixer rounds over all phases. */
   fixIterations: number;
   check?: CheckResult;
   disputes: string[];
-  /** Test methods per acceptance criterion. */
+  /** Test methods and scenarios per acceptance criterion of the delivered spec. */
   coverage?: Record<string, string[]>;
-  /** The installable jar and README, only when status is "done". */
+  phases: PhaseOutcome[];
+  /** The spec of what was delivered (the last green phase). */
+  spec?: PluginSpec;
+  /** The installable jar and README, when something green was delivered. */
   delivery?: Delivery;
 }
 
@@ -102,9 +125,11 @@ function failureSummary(r: CheckResult): string {
   return `${r.failedStage} failed with ${errs.length} error(s), e.g. ${first?.file ?? ""}${first?.line ? `:${first.line}` : ""} ${first?.message ?? ""}`.trim();
 }
 
-/** Adds live scenarios to the per-criterion coverage, as "scenario <id>". */
-async function withScenarios(coverage: Record<string, string[]> | undefined, projectDir: string): Promise<Record<string, string[]>> {
-  const out: Record<string, string[]> = Object.fromEntries(Object.entries(coverage ?? {}).map(([k, v]) => [k, [...v]]));
+/** Unit tests and live scenarios per acceptance criterion. */
+async function coverageOf(spec: PluginSpec, projectDir: string): Promise<Record<string, string[]>> {
+  const tests = await readTree(projectDir, "src/test");
+  tests.delete(templateTestPath(spec));
+  const out = testCoverage(spec, new Map([...tests].filter(([rel]) => rel.endsWith(".java")))).byCriterion;
   for (const sc of (await loadScenarios(projectDir)).scenarios) {
     for (const id of sc.covers) if (out[id]) out[id].push(`scenario ${sc.id}`);
   }
@@ -126,42 +151,67 @@ function sameFingerprint(a: Map<string, string>, b: Map<string, string>): string
   return changed;
 }
 
+const greenFolder = (projectDir: string) => path.join(projectDir, ".plugforge", "last-green");
+
+/** Keeps sources, tests, scenarios and spec of the last green phase. */
+async function saveGreen(projectDir: string): Promise<void> {
+  const dir = greenFolder(projectDir);
+  await rm(dir, { recursive: true, force: true });
+  await mkdir(dir, { recursive: true });
+  await cp(path.join(projectDir, "src"), path.join(dir, "src"), { recursive: true });
+  await cp(path.join(projectDir, "spec.json"), path.join(dir, "spec.json"));
+}
+
+async function restoreGreen(projectDir: string): Promise<void> {
+  const dir = greenFolder(projectDir);
+  await rm(path.join(projectDir, "src"), { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
+  await cp(path.join(dir, "src"), path.join(projectDir, "src"), { recursive: true });
+  await cp(path.join(dir, "spec.json"), path.join(projectDir, "spec.json"));
+}
+
+type PhaseResult = { ok: true; check: CheckResult } | { ok: false; status: "stuck" | "error"; reason: string; check?: CheckResult };
+
 /**
- * Orchestrator (PLAN.md §3): a fixed state machine around the LLM stages.
- * SCAFFOLD → TESTS_WRITE → CODE_WRITE → CHECK ─fail→ FIX (→ TEST_REVIEW) → CHECK … → DONE,
- * or STUCK on limits. Clarifier and SpecWriter run before this, in the caller, because they
- * need the user.
+ * Orchestrator (PLAN.md §3): a fixed state machine around the LLM stages, run once per build
+ * phase on top of the previous phase's green code:
+ *   SCAFFOLD → [PHASE → TESTS_WRITE → SCENARIOS_WRITE → CODE_WRITE → CHECK ─fail→ FIX (→ TEST_REVIEW) → CHECK …]*
+ *   → REPORT → DONE, or PARTIAL (rolled back to the last green phase) / STUCK / ERROR.
+ * Clarifier, phase planning and SpecWriter run in the caller, because they need the user.
  */
 export async function runAgent(o: AgentOptions): Promise<AgentResult> {
-  const maxFix = o.maxFixIterations ?? 8;
+  const maxFix = o.maxFixIterations ?? 10;
   const escalateAfter = o.escalateAfter ?? 3;
   const stuckAfter = o.stuckAfter ?? 5;
   const maxReviews = o.maxTestReviews ?? 2;
-  const { spec, projectDir, runLog, log } = o;
-  const ctx: StageContext = { spec, projectDir, gateway: o.gateway, paperApi: o.paperApi, pluginApiVersion: o.pluginApiVersion, log };
+  const { projectDir, runLog, log } = o;
+  const plan = o.phases?.length ? o.phases : [{ title: o.spec.name, goal: o.spec.description }];
+  const multi = plan.length > 1;
+  if (multi && !o.nextSpec) throw new Error("nextSpec is required for a phased build");
+  if (multi && o.testsDir) throw new Error("ready-made tests are only supported for a single-phase build");
+  const outcomes: PhaseOutcome[] = plan.map((p) => ({ title: p.title, status: "not_started", fixIterations: 0, criteria: [] }));
   const disputes: string[] = [];
   let fixIterations = 0;
-  let reviews = 0;
-  let last: CheckResult | undefined;
-  let coverage: Record<string, string[]> | undefined;
+  let spec = o.spec;
+  let green: { spec: PluginSpec; check: CheckResult } | undefined;
 
   const enter = async (state: AgentState, data: Record<string, unknown> = {}) => {
     await runLog.event(state, data);
     log(`[${state}]${data.note ? ` ${String(data.note)}` : ""}`);
   };
-  const finish = async (partial: AgentResult): Promise<AgentResult> => {
-    const result = { ...partial, coverage };
-    await enter(result.status === "done" ? "DONE" : result.status === "stuck" ? "STUCK" : "ERROR", { note: result.reason ?? "" });
+  const finish = async (result: AgentResult): Promise<AgentResult> => {
+    const final = { DONE: "done", PARTIAL: "partial", STUCK: "stuck", ERROR: "error" } as const;
+    const state = (Object.keys(final) as (keyof typeof final)[]).find((k) => final[k] === result.status)!;
+    await enter(state, { note: result.reason ?? "" });
     await runLog.write({
       status: result.status,
       reason: result.reason,
       fixIterations: result.fixIterations,
-      testReviews: reviews,
+      phases: result.phases,
       delivery: result.delivery,
       disputes: result.disputes,
-      coverage,
-      intake: o.intake,
-      spec,
+      coverage: result.coverage,
+      intake: { ...o.intake, phases: plan },
+      spec: result.spec ?? spec,
       projectDir,
       routing: o.gateway.config.routing,
       models: Object.fromEntries(Object.entries(o.gateway.config.profiles).map(([k, p]) => [k, p.model])),
@@ -171,40 +221,33 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
     return result;
   };
 
-  try {
-    await enter("SCAFFOLD", { note: projectDir });
-    await scaffoldPlugin(projectDir, { name: spec.name, packageName: spec.package, mainClass: spec.mainClass, description: spec.description });
-    // The approved spec travels with the project (for the user, and for change requests in M9).
-    await writeFile(path.join(projectDir, "spec.json"), `${JSON.stringify(spec, null, 2)}\n`);
-
+  /** One phase: tests and scenarios for its new criteria, code, then check/fix until green. */
+  const buildPhase = async (ctx: StageContext, outcome: PhaseOutcome, first: boolean): Promise<PhaseResult> => {
+    let reviews = 0;
     if (o.testsDir) {
       log(`installed ${await installTests(o.testsDir, projectDir)} ready-made test file(s)`);
-      const tests = await readTree(projectDir, "src/test");
-      tests.delete(templateTestPath(spec));
-      coverage = await withScenarios(testCoverage(spec, tests).byCriterion, projectDir);
-      const missing = Object.entries(coverage).filter(([, t]) => t.length === 0).map(([id]) => id);
+      const missing = Object.entries(await coverageOf(ctx.spec, projectDir)).filter(([, t]) => t.length === 0).map(([id]) => id);
       if (missing.length) log(`warning: no tests or scenarios for ${missing.join(", ")}`);
     } else {
       if (!o.compileTests) throw new Error("compileTests is required when the agent writes the tests");
       await enter("TESTS_WRITE");
-      coverage = (await writeTests(ctx, o.compileTests)).byCriterion;
+      await writeTests(ctx, o.compileTests);
       if (o.liveScenarios) {
         await enter("SCENARIOS_WRITE");
         try {
           await writeScenarios(ctx);
         } catch (err) {
           if (err instanceof BudgetExceededError) throw err;
-          // Live tests add confidence; without usable scenarios the run still has L0+L1.
-          log(`warning: ${(err as Error).message.split("\n")[0]}; continuing without live tests`);
+          // Live tests add confidence; without usable scenarios the phase still has L0+L1.
+          log(`warning: ${(err as Error).message.split("\n")[0]}; continuing without new live tests`);
           await runLog.event("SCENARIOS_SKIPPED", { reason: (err as Error).message });
         }
-        coverage = await withScenarios(coverage, projectDir);
       }
     }
-    await runLog.event("TESTS_LOCKED", { coverage });
+    await runLog.event("TESTS_LOCKED", { coverage: await coverageOf(ctx.spec, projectDir) });
     let locked = await lockedFingerprint(projectDir);
 
-    await enter("CODE_WRITE");
+    await enter("CODE_WRITE", { note: first ? "" : "extending the current code" });
     await writeProject(ctx);
 
     const history: string[] = [];
@@ -212,51 +255,34 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
     let repeats = 0;
     for (;;) {
       await runLog.snapshot(fixIterations, projectDir);
-      await enter("CHECK", { iteration: fixIterations });
+      await enter("CHECK", { iteration: outcome.fixIterations });
       let result = await o.check(projectDir);
       if (result.ok) {
-        const conformance = await specConformance(projectDir, spec);
+        const conformance = await specConformance(projectDir, ctx.spec);
         if (conformance.length) result = { ...result, ok: false, failedStage: "validate", validate: { ok: false, durationMs: 0, diagnostics: conformance } };
       }
-      last = result;
       await runLog.check(fixIterations, result);
 
       const tampered = sameFingerprint(locked, await lockedFingerprint(projectDir));
-      if (tampered.length) return await finish({ status: "error", reason: `locked files changed: ${tampered.join(", ")}`, fixIterations, check: result, disputes });
+      if (tampered.length) return { ok: false, status: "error", reason: `locked files changed: ${tampered.join(", ")}`, check: result };
+      if (result.ok) return { ok: true, check: result };
 
-      if (result.ok) {
-        const t = result.test;
-        const l = result.live;
-        const green = `L0+L1${l ? "+L2" : ""} green, ${t?.passed}/${t?.total} tests${l ? `, ${l.passed}/${l.total} live scenarios` : ""}`;
-        await enter("REPORT");
-        const untested = specGaps(spec, specLanguage(spec));
-        try {
-          untested.push(...(await reviewCoverage(ctx)));
-        } catch (err) {
-          // A failed audit must not cost the user a working plugin; the spec gaps still go in.
-          if (err instanceof BudgetExceededError) throw err;
-          log(`Reporter: coverage review failed (${(err as Error).message}); listing spec gaps only`);
-        }
-        log(`Reporter: ${untested.length} thing(s) not covered by tests`);
-        const delivery = await deliver(projectDir, spec, result, { paperVersion: o.minecraftVersion, coverage, untested });
-        return await finish({ status: "done", reason: green, fixIterations, check: result, disputes, delivery });
-      }
       log(`check failed: ${failureSummary(result)}`);
-      if (fixIterations >= maxFix) return await finish({ status: "stuck", reason: `fix limit of ${maxFix} iterations reached`, fixIterations, check: result, disputes });
-
+      if (outcome.fixIterations >= maxFix) return { ok: false, status: "stuck", reason: `fix limit of ${maxFix} iterations reached`, check: result };
       const signature = failureSignature(result);
       repeats = signature === lastSignature ? repeats + 1 : 1;
       lastSignature = signature;
-      if (repeats >= stuckAfter) return await finish({ status: "stuck", reason: `same failure ${repeats} times in a row`, fixIterations, check: result, disputes });
+      if (repeats >= stuckAfter) return { ok: false, status: "stuck", reason: `same failure ${repeats} times in a row`, check: result };
       const route = repeats >= escalateAfter ? "fix_escalation" : "fix";
 
+      outcome.fixIterations++;
       fixIterations++;
-      await enter("FIX", { iteration: fixIterations, route, note: `#${fixIterations} via ${o.gateway.profileFor(route)}${repeats > 1 ? ` (same failure x${repeats})` : ""}` });
+      await enter("FIX", { iteration: fixIterations, route, note: `#${outcome.fixIterations} via ${o.gateway.profileFor(route)}${repeats > 1 ? ` (same failure x${repeats})` : ""}` });
       const fix = await fixProject(ctx, { check: result, route, history: history.slice(-5), iteration: fixIterations });
       disputes.push(...fix.disputes);
       log(`Fixer changed ${fix.changed.length ? fix.changed.join(", ") : "nothing"}${fix.explanation ? ` — ${fix.explanation.split("\n")[0]}` : ""}`);
       history.push(
-        `#${fixIterations}: ${failureSummary(result)} → changed ${fix.changed.join(", ") || "nothing"}` +
+        `#${outcome.fixIterations}: ${failureSummary(result)} → changed ${fix.changed.join(", ") || "nothing"}` +
           (fix.errors.length ? ` (unapplied: ${fix.errors.join("; ")})` : ""),
       );
 
@@ -274,9 +300,116 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
         }
       }
     }
+  };
+
+  /** REPORT + delivery of a green state (all phases, or the last green one). */
+  const report = async (deliveredSpec: PluginSpec, check: CheckResult) => {
+    await enter("REPORT");
+    const ctx: StageContext = { spec: deliveredSpec, projectDir, gateway: o.gateway, paperApi: o.paperApi, pluginApiVersion: o.pluginApiVersion, log };
+    const untested = specGaps(deliveredSpec, specLanguage(deliveredSpec));
+    try {
+      untested.push(...(await reviewCoverage(ctx)));
+    } catch (err) {
+      // A failed audit must not cost the user a working plugin; the spec gaps still go in.
+      if (err instanceof BudgetExceededError) throw err;
+      log(`Reporter: coverage review failed (${(err as Error).message}); listing spec gaps only`);
+    }
+    log(`Reporter: ${untested.length} thing(s) not covered by tests`);
+    const coverage = await coverageOf(deliveredSpec, projectDir);
+    const delivery = await deliver(projectDir, deliveredSpec, check, { paperVersion: o.minecraftVersion, coverage, untested, phases: multi ? outcomes : undefined });
+    return { coverage, delivery };
+  };
+
+  const greenLine = (r: CheckResult) => {
+    const t = r.test;
+    const l = r.live;
+    return `L0+L1${l ? "+L2" : ""} green, ${t?.passed}/${t?.total} tests${l ? `, ${l.passed}/${l.total} live scenarios` : ""}`;
+  };
+
+  let failure: { status: "stuck" | "error"; reason: string; check?: CheckResult } | undefined;
+  try {
+    await enter("SCAFFOLD", { note: projectDir });
+    await scaffoldPlugin(projectDir, { name: spec.name, packageName: spec.package, mainClass: spec.mainClass, description: spec.description });
+
+    for (let i = 0; i < plan.length; i++) {
+      const outcome = outcomes[i]!;
+      const previous = i > 0 ? spec : undefined;
+      try {
+        if (previous) {
+          await saveGreen(projectDir);
+          spec = await o.nextSpec!(i, previous);
+        }
+        // The approved spec travels with the project (for the user, and for later changes).
+        await writeFile(path.join(projectDir, "spec.json"), `${JSON.stringify(spec, null, 2)}\n`);
+        const known = new Set(previous?.acceptance.map((a) => a.id) ?? []);
+        const newCriteria = spec.acceptance.filter((a) => !known.has(a.id));
+        outcome.criteria = newCriteria.map((a) => a.id);
+        if (multi) await enter("PHASE", { note: `${i + 1}/${plan.length} ${plan[i]!.title}: ${newCriteria.map((a) => a.id).join(", ")}` });
+        const ctx: StageContext = {
+          spec,
+          projectDir,
+          gateway: o.gateway,
+          paperApi: o.paperApi,
+          pluginApiVersion: o.pluginApiVersion,
+          log,
+          phase: multi ? { index: i, total: plan.length, title: plan[i]!.title, goal: plan[i]!.goal, newCriteria } : undefined,
+        };
+        const r = await buildPhase(ctx, outcome, i === 0);
+        if (r.ok) {
+          outcome.status = "done";
+          green = { spec, check: r.check };
+          log(`phase ${i + 1}/${plan.length} green: ${greenLine(r.check)}`);
+          continue;
+        }
+        outcome.status = "failed";
+        outcome.reason = r.reason;
+        failure = { status: r.status, reason: r.reason, check: r.check };
+      } catch (err) {
+        if (err instanceof BudgetExceededError) {
+          outcome.status = "failed";
+          outcome.reason = err.message;
+          failure = { status: "stuck", reason: err.message };
+        } else {
+          outcome.status = "failed";
+          outcome.reason = (err as Error).message;
+          failure = { status: "error", reason: (err as Error).message };
+        }
+      }
+      break;
+    }
+
+    if (!failure && green) {
+      const { coverage, delivery } = await report(green.spec, green.check);
+      return finish({ status: "done", reason: `${multi ? `all ${plan.length} phases, ` : ""}${greenLine(green.check)}`, fixIterations, check: green.check, disputes, coverage, phases: outcomes, spec: green.spec, delivery });
+    }
+    const failedAt = outcomes.findIndex((p) => p.status === "failed");
+    if (!green || !existsSync(greenFolder(projectDir))) {
+      return finish({ status: failure?.status ?? "error", reason: failure?.reason, fixIterations, check: failure?.check, disputes, phases: outcomes });
+    }
+
+    // A later phase failed: give the user the last green plugin rather than nothing.
+    await enter("ROLLBACK", { note: `phase ${failedAt + 1} failed (${failure?.reason ?? "unknown"}); restoring phase ${failedAt}` });
+    await restoreGreen(projectDir);
+    const recheck = await o.check(projectDir);
+    if (!recheck.ok) {
+      return finish({ status: "error", reason: `phase ${failedAt + 1} failed and the restored phase ${failedAt} is no longer green`, fixIterations, check: recheck, disputes, phases: outcomes });
+    }
+    const { coverage, delivery } = await report(green.spec, recheck);
+    return finish({
+      status: "partial",
+      reason: `phases 1-${failedAt} delivered; phase ${failedAt + 1} "${plan[failedAt]!.title}" failed: ${failure?.reason ?? "unknown"}`,
+      fixIterations,
+      check: recheck,
+      disputes,
+      coverage,
+      phases: outcomes,
+      spec: green.spec,
+      delivery,
+    });
   } catch (err) {
-    if (err instanceof BudgetExceededError) return finish({ status: "stuck", reason: err.message, fixIterations, check: last, disputes });
-    return finish({ status: "error", reason: (err as Error).message, fixIterations, check: last, disputes });
+    // Failures outside a phase (scaffold, report, rollback).
+    const status = err instanceof BudgetExceededError ? "stuck" : "error";
+    return finish({ status, reason: (err as Error).message, fixIterations, check: green?.check, disputes, phases: outcomes });
   }
 }
 

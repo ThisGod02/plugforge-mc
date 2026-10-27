@@ -1,0 +1,9 @@
+id: entities-near-player
+covers: [extra]
+description: Harness check — expect_entities counts mobs near a player
+players: [alice]
+steps:
+  - console: "execute at alice run summon villager ~2 ~ ~2"
+  - expect_entities: { radius: 8, type: villager, count: 1 }
+  - console: "kill @e[type=villager]"
+  - expect_entities: { radius: 8, type: villager, count: 0 }

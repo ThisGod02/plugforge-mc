@@ -1,0 +1,44 @@
+{
+  "name": "Greeter",
+  "package": "dev.plugforge.greeter",
+  "mainClass": "GreeterPlugin",
+  "description": "Greets players with a configurable message.",
+  "commands": [
+    {
+      "name": "greet",
+      "description": "Greet yourself or another online player",
+      "usage": "/greet [player]"
+    }
+  ],
+  "config": [
+    {
+      "key": "greeting.message",
+      "type": "string",
+      "default": "Hello, %player%!",
+      "description": "Greeting text; %player% is replaced with the greeted player's name"
+    }
+  ],
+  "messages": {
+    "greetedOther": "Greeted %player%.",
+    "playerNotFound": "Player not found: %player%",
+    "consoleNeedsTarget": "Usage: /greet <player>"
+  },
+  "acceptance": [
+    {
+      "id": "AC1",
+      "text": "The default config.yml has greeting.message = \"Hello, %player%!\""
+    },
+    {
+      "id": "AC2",
+      "text": "/greet sends the sender the greeting with %player% replaced by their own name"
+    },
+    {
+      "id": "AC3",
+      "text": "/greet <name> sends the greeting to that online player and tells the sender greetedOther"
+    },
+    {
+      "id": "AC4",
+      "text": "/greet <name> for a player who is not online tells the sender playerNotFound"
+    }
+  ]
+}

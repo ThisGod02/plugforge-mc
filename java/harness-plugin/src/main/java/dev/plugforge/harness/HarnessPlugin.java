@@ -11,6 +11,8 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -30,6 +32,7 @@ import org.bukkit.plugin.java.JavaPlugin;
  * pfh ping                              -> PFH OK
  * pfh perm &lt;player&gt; &lt;node&gt; &lt;true|false&gt;  -> grants/denies one permission node (kept across rejoins)
  * pfh state &lt;player&gt;                    -> one line of JSON: health, food, position, inventory, open menu
+ * pfh entities &lt;player&gt; &lt;radius&gt;        -> JSON array of entities near the player
  * </pre>
  */
 public class HarnessPlugin extends JavaPlugin implements Listener {
@@ -60,8 +63,10 @@ public class HarnessPlugin extends JavaPlugin implements Listener {
             sender.sendMessage("PFH OK");
         } else if (args.length == 2 && args[0].equals("state")) {
             sender.sendMessage(state(args[1]).toString());
+        } else if (args.length == 3 && args[0].equals("entities")) {
+            sender.sendMessage(entities(args[1], Double.parseDouble(args[2])).toString());
         } else {
-            sender.sendMessage("PFH ERROR usage: pfh ping | perm <player> <node> <true|false> | state <player>");
+            sender.sendMessage("PFH ERROR usage: pfh ping | perm <player> <node> <true|false> | state <player> | entities <player> <radius>");
         }
         return true;
     }
@@ -112,6 +117,26 @@ public class HarnessPlugin extends JavaPlugin implements Listener {
             open.addProperty("size", view.getTopInventory().getSize());
             open.add("items", items(view.getTopInventory()));
             out.add("open", open);
+        }
+        return out;
+    }
+
+    /** Entities (not the player) within radius of a player: type, custom name, position, health. */
+    private JsonArray entities(String name, double radius) {
+        JsonArray out = new JsonArray();
+        Player player = Bukkit.getPlayerExact(name);
+        if (player == null) return out;
+        for (Entity entity : player.getNearbyEntities(radius, radius, radius)) {
+            JsonObject o = new JsonObject();
+            o.addProperty("type", entity.getType().getKey().getKey());
+            Component custom = entity.customName();
+            if (custom != null) o.addProperty("name", PLAIN.serialize(custom));
+            else if (entity instanceof Player other) o.addProperty("name", other.getName());
+            o.addProperty("x", entity.getLocation().getX());
+            o.addProperty("y", entity.getLocation().getY());
+            o.addProperty("z", entity.getLocation().getZ());
+            if (entity instanceof LivingEntity living) o.addProperty("health", living.getHealth());
+            out.add(o);
         }
         return out;
     }

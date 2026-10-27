@@ -4,6 +4,7 @@ import path from "node:path";
 import { loadScenarios, type CheckResult } from "@plugforge/bench";
 import type { PluginSpec } from "../spec/spec.ts";
 import { specGaps, specLanguage, type UntestedItem } from "../stages/reporter.ts";
+import type { PhaseOutcome } from "./orchestrator.ts";
 
 export interface Delivery {
   /** The plugin jar the user installs: `<project>/dist/<Name>-<version>.jar`. */
@@ -24,6 +25,8 @@ interface ReadmeFacts {
   live?: { id: string; covers: string[]; description?: string }[];
   /** Scenario files exist but were not played. */
   liveNotRun?: number;
+  /** Build phases of a phased build. */
+  phases?: PhaseOutcome[];
 }
 
 /** Reporter output kept with the project, so `check` (no model) can still write the section. */
@@ -44,6 +47,10 @@ export function renderReadme(f: ReadmeFacts): string {
   const R = specLanguage(s) === "ru";
   const t = R
     ? {
+        phases: "Этапы сборки",
+        phasesText: "Плагин собирался по этапам; каждый следующий строился поверх готового, тесты прошлых этапов прогонялись как регрессия.",
+        phaseHead: ["#", "Этап", "Статус", "Критерии"],
+        phaseStatus: { done: "готов", failed: "не удался — откат к предыдущему", not_started: "не начат" },
         untested: "Не проверено автотестами",
         untestedText:
           "Автотесты выше проходят, но кое-что они не доказывают. Перед запуском на живом сервере проверьте это руками (первыми — с высоким риском):",
@@ -70,6 +77,10 @@ export function renderReadme(f: ReadmeFacts): string {
         rebuildText: "Исходники лежат в `src/`, спецификация — в `spec.json`. Собрать и проверить заново:",
       }
     : {
+        phases: "Build phases",
+        phasesText: "The plugin was built in phases; each one on top of the previous, with the earlier tests replayed as regression.",
+        phaseHead: ["#", "Phase", "Status", "Criteria"],
+        phaseStatus: { done: "done", failed: "failed — rolled back to the previous one", not_started: "not started" },
         untested: "Not covered by tests",
         untestedText: "The tests above pass, but they do not prove the following. Check these by hand on a real server before relying on them (high risk first):",
         untestedHead: ["Risk", "What", "Where"],
@@ -96,6 +107,15 @@ export function renderReadme(f: ReadmeFacts): string {
       };
 
   const out: string[] = [GENERATED_MARK, `# ${s.name}`, "", s.description, "", `## ${t.install}`, "", t.installText, "", t.requires, ""];
+  if (f.phases && f.phases.length > 1) {
+    const rows = f.phases.map((p, i) => [
+      String(i + 1),
+      p.title,
+      p.status === "failed" && p.reason ? `${t.phaseStatus.failed} (${p.reason})` : t.phaseStatus[p.status],
+      p.criteria.join(", ") || "—",
+    ]);
+    out.push(`## ${t.phases}`, "", t.phasesText, "", table(t.phaseHead, rows), "");
+  }
   if (s.commands.length) {
     // Specs written before checksPermission existed cannot tell "open to everyone" from "checked
     // in code"; show a dash rather than claim the command is open.
@@ -145,6 +165,7 @@ export async function deliver(
     coverage?: Record<string, string[]>;
     /** Fresh Reporter findings; without them the last saved report (or the spec gaps alone) is used. */
     untested?: UntestedItem[];
+    phases?: PhaseOutcome[];
   },
 ): Promise<Delivery> {
   let untested = opts.untested;
@@ -174,7 +195,7 @@ export async function deliver(
       ? check.live.scenarios.map((r) => ({ id: r.id, covers: r.covers, description: scenarios.scenarios.find((x) => x.id === r.id)?.description }))
       : undefined;
     const liveNotRun = check.live ? undefined : scenarios.scenarios.length || undefined;
-    await writeFile(readme, renderReadme({ spec, jarName, paperVersion: opts.paperVersion, tests, coverage: opts.coverage, untested, live, liveNotRun }));
+    await writeFile(readme, renderReadme({ spec, jarName, paperVersion: opts.paperVersion, tests, coverage: opts.coverage, untested, live, liveNotRun, phases: opts.phases }));
   }
   if ((await readdir(dist)).length !== 1) throw new Error(`unexpected files in ${dist}`);
   return { jar, readme, untested };
