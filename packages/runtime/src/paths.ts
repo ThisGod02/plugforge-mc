@@ -17,6 +17,9 @@ export function plugforgeHome(): string {
 export const homePaths = {
   jdk: () => path.join(plugforgeHome(), "jdk"),
   paper: () => path.join(plugforgeHome(), "paper"),
+  gradle: () => path.join(plugforgeHome(), "gradle"),
+  /** GRADLE_USER_HOME shared by all builds, so dependencies are downloaded once. */
+  gradleUserHome: () => path.join(plugforgeHome(), "gradle-home"),
   servers: () => path.join(plugforgeHome(), "servers"),
   downloads: () => path.join(plugforgeHome(), "downloads"),
   config: () => path.join(plugforgeHome(), "config.json"),

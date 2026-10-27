@@ -1,0 +1,5 @@
+{
+  "description": "Template plugin plus a /hello command and its MockBukkit test; must pass every stage.",
+  "scaffold": { "name": "HelloPlugin", "packageName": "dev.plugforge.hello", "description": "Greets players" },
+  "expect": { "ok": true, "minTests": 2 }
+}

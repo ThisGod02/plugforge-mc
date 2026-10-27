@@ -10,9 +10,17 @@
     "sha256": "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba",
     "url": "https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/paper-1.21.11-132.jar"
   },
+  "paperApi": "1.21.11-R0.1-SNAPSHOT",
+  "pluginApiVersion": "1.21",
+  "gradle": {
+    "version": "9.8.2",
+    "sha256": "21bd5da2de49b642904077f38c0efdc7778e92b3ed0889392dca61b97e389607",
+    "url": "https://services.gradle.org/distributions/gradle-9.8.2-bin.zip"
+  },
   "mineflayer": "4.39.0",
   "mockbukkit": {
     "artifact": "org.mockbukkit.mockbukkit:mockbukkit-v1.21",
     "version": "4.116.3"
-  }
+  },
+  "junit": "6.0.3"
 }

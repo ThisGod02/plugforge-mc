@@ -1,0 +1,9 @@
+{
+  "description": "Typo in a method name; L0 must report a javac error with file and line.",
+  "extends": "hello-ok",
+  "expect": {
+    "ok": false,
+    "failedStage": "build",
+    "diagnosticAt": "src/main/java/dev/plugforge/hello/HelloCommand.java:12"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "description": "Compiles but greets with the wrong text; L1 must report the failing test and assertion.",
+  "extends": "hello-ok",
+  "expect": {
+    "ok": false,
+    "failedStage": "test",
+    "failedTest": "helloGreetsPlayerByName",
+    "failedTestMessageContains": "Hello, Steve!"
+  }
+}

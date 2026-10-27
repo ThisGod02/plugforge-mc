@@ -1,0 +1,5 @@
+name: {{name}}
+version: '${version}'
+main: {{package}}.{{mainClass}}
+api-version: '{{pluginApiVersion}}'
+description: {{descriptionYaml}}

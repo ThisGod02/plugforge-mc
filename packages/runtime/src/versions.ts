@@ -5,8 +5,14 @@ export interface BenchVersions {
   minecraft: string;
   java: { minFeature: number };
   paper: { version: string; build: number; sha256: string; url: string };
+  /** Maven version of io.papermc.paper:paper-api plugins compile against. */
+  paperApi: string;
+  /** Value for `api-version` in plugin.yml. */
+  pluginApiVersion: string;
+  gradle: { version: string; sha256: string; url: string };
   mineflayer: string;
   mockbukkit: { artifact: string; version: string };
+  junit: string;
 }
 
 const versionsFile = fileURLToPath(new URL("../../../bench.versions.json", import.meta.url));

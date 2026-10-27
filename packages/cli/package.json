@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@plugforge/bench": "*",
+    "@plugforge/core": "*",
     "@plugforge/runtime": "*"
   }
 }

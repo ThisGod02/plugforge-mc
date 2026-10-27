@@ -1,0 +1,9 @@
+name: HelloPlugin
+version: '${version}'
+main: dev.plugforge.hello.Main
+api-version: '1.21'
+description: "Greets players"
+commands:
+  hello:
+    description: Greets you by name
+    usage: /hello

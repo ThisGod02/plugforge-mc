@@ -1,0 +1,9 @@
+{
+  "description": "plugin.yml points at a main class that does not exist; validation must catch it before tests.",
+  "extends": "hello-ok",
+  "expect": {
+    "ok": false,
+    "failedStage": "validate",
+    "diagnosticContains": "does not exist"
+  }
+}

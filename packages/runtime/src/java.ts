@@ -7,21 +7,25 @@ import { homePaths } from "./paths.ts";
 
 export interface JavaRuntime {
   executable: string;
+  /** JDK root, passed as JAVA_HOME to tools like Gradle. */
+  home: string;
   feature: number;
   source: "JAVA_HOME" | "PATH" | "bundled";
 }
 
 const javaBin = process.platform === "win32" ? "java.exe" : "java";
 
-/** Returns the Java feature version (e.g. 21) of an executable, or undefined if it can't run. */
-function probeJava(executable: string): number | undefined {
-  const res = spawnSync(executable, ["-version"], { encoding: "utf8", windowsHide: true });
+/** Returns the Java feature version (e.g. 21) and home of an executable, or undefined if it can't run. */
+function probeJava(executable: string): { feature: number; home: string } | undefined {
+  const res = spawnSync(executable, ["-XshowSettings:properties", "-version"], { encoding: "utf8", windowsHide: true });
   if (res.error || res.status !== 0) return undefined;
-  const match = /version "(\d+)(?:\.(\d+))?/.exec(res.stderr ?? "");
-  if (!match) return undefined;
-  const major = Number(match[1]);
-  // Java 8 and older report "1.8.0_xxx".
-  return major === 1 ? Number(match[2]) : major;
+  const out = res.stderr ?? "";
+  const spec = /java\.specification\.version = (\d+)(?:\.(\d+))?/.exec(out);
+  const home = /java\.home = (.+)/.exec(out)?.[1]?.trim();
+  if (!spec || !home) return undefined;
+  const major = Number(spec[1]);
+  // Java 8 and older report "1.8".
+  return { feature: major === 1 ? Number(spec[2]) : major, home };
 }
 
 async function findBundledJava(): Promise<string | undefined> {
@@ -87,12 +91,12 @@ export async function ensureJava(minFeature: number, log: Log): Promise<JavaRunt
   if (bundled) candidates.push({ executable: bundled, source: "bundled" });
 
   for (const c of candidates) {
-    const feature = probeJava(c.executable);
-    if (feature !== undefined && feature >= minFeature) return { ...c, feature };
+    const probe = probeJava(c.executable);
+    if (probe && probe.feature >= minFeature) return { ...c, ...probe };
   }
 
   const executable = await downloadTemurin(minFeature, log);
-  const feature = probeJava(executable);
-  if (feature === undefined) throw new Error(`downloaded JDK at ${executable} does not run`);
-  return { executable, feature, source: "bundled" };
+  const probe = probeJava(executable);
+  if (!probe) throw new Error(`downloaded JDK at ${executable} does not run`);
+  return { executable, ...probe, source: "bundled" };
 }
