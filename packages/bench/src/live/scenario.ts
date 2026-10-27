@@ -155,14 +155,19 @@ function parseSteps(raw: unknown, where: string, players: string[], errors: stri
       if (as === undefined && players.length === 1) as = players[0];
       if (as === undefined) return void errors.push(`${at}: '${action}' needs 'as: <player>' when there are several players`);
       if (!set.has(as)) return void errors.push(`${at}: as '${as}' is not in 'players'`);
-    } else if (as !== undefined) {
-      return void errors.push(`${at}: '${action}' is a server action and takes no 'as'`);
     }
-    // Player-targeted server actions default to the first player too.
     let arg = s[action];
-    if (players.length === 1 && isObj(arg) && arg.player === undefined && ["perm", "give", "teleport", "damage", "expect_state"].includes(action)) {
-      arg = { ...arg, player: players[0] };
+    // Player-targeted server actions: `as` (which models write naturally) names the player, and a
+    // single-player scenario needs neither.
+    const targeted = ["perm", "give", "teleport", "damage", "expect_state"].includes(action);
+    if (!isBotAction(action) && as !== undefined) {
+      if (!targeted || !isObj(arg)) return void errors.push(`${at}: '${action}' is a server action and takes no 'as'`);
+      if (arg.player !== undefined && arg.player !== as) return void errors.push(`${at}: 'as: ${as}' and 'player: ${String(arg.player)}' disagree`);
+      if (!set.has(as)) return void errors.push(`${at}: as '${as}' is not in 'players'`);
+      arg = { ...arg, player: as };
+      as = undefined;
     }
+    if (players.length === 1 && targeted && isObj(arg) && arg.player === undefined) arg = { ...arg, player: players[0] };
     for (const p of checkArg(action, arg, set)) errors.push(`${at} (${action}): ${p}`);
     steps.push({ action, arg, as, text: `${as && players.length > 1 ? `[${as}] ` : ""}${action}: ${JSON.stringify(arg)}` });
   });

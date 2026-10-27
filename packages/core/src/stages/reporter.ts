@@ -59,8 +59,11 @@ export function specGaps(spec: PluginSpec, language: "ru" | "en"): UntestedItem[
 function checkItems(raw: unknown): UntestedItem[] {
   const list = (raw as { untested?: unknown })?.untested;
   if (!Array.isArray(list)) throw new Error('expected {"untested": [...]}');
+  const seen = new Set<string>();
   return (list as { what?: unknown; where?: unknown; risk?: unknown }[])
     .filter((i) => typeof i?.what === "string" && i.what.trim())
+    // Models sometimes repeat an item verbatim.
+    .filter((i) => !seen.has((i.what as string).trim()) && seen.add((i.what as string).trim()))
     .slice(0, MAX_REVIEW_ITEMS)
     .map((i) => ({
       what: (i.what as string).trim(),
