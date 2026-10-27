@@ -34,6 +34,9 @@ function serverProperties(port: number, rconPort: number, rconPassword: string):
     `rcon.password=${rconPassword}`,
     "broadcast-rcon-to-ops=false",
     "level-type=minecraft\\:flat",
+    // Without explicit layers Paper writes generator-settings={} and logs "No key layers" errors,
+    // which would drown real plugin errors in the server log.
+    'generator-settings={"layers"\\:[{"block"\\:"minecraft\\:bedrock","height"\\:1},{"block"\\:"minecraft\\:dirt","height"\\:2},{"block"\\:"minecraft\\:grass_block","height"\\:1}],"biome"\\:"minecraft\\:plains"}',
     "generate-structures=false",
     "spawn-protection=0",
     "view-distance=4",

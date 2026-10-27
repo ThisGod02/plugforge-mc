@@ -20,7 +20,8 @@ import { editablePath, writeProjectFile } from "../workspace/files.ts";
  */
 export type FileEdit = { kind: "write"; path: string; content: string } | { kind: "replace"; path: string; search: string; replace: string };
 
-const FILE = /^\s*(?:\*\*)?FILE:\s*`?([^`*\s]+)`?(?:\*\*)?\s*$/;
+// Models decorate the marker: "FILE: x", "**FILE:** x", "## FILE: x", "### **FILE: `x`**".
+const FILE = /^\s*(?:#{1,6}\s*)?(?:\*\*)?FILE:\s*(?:\*\*)?\s*`?([^`*\s]+)`?(?:\*\*)?\s*$/;
 const SEARCH = /^\s*<{5,}\s*SEARCH\s+`?([^`\s]+)`?\s*$/;
 const DIVIDER = /^\s*={5,}\s*$/;
 const REPLACE = /^\s*>{5,}\s*REPLACE\s*$/;
