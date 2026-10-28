@@ -40,7 +40,9 @@ const reportFile = (projectDir: string) => path.join(projectDir, ".plugforge", "
 export async function readPhaseHistory(projectDir: string): Promise<PhaseOutcome[] | undefined> {
   if (!existsSync(reportFile(projectDir))) return undefined;
   const report = JSON.parse(await readFile(reportFile(projectDir), "utf8")) as { phases?: PhaseOutcome[] };
-  return report.phases?.length ? report.phases : undefined;
+  // Only what the plugin contains: phases of a partial delivery that failed or never ran were rolled back.
+  const built = report.phases?.filter((p) => p.status === "done") ?? [];
+  return built.length ? built : undefined;
 }
 
 /** The last written manual, so `check` (no model) can put it back into dist/. */

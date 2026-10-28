@@ -102,8 +102,8 @@ export const specSchema = {
     acceptance: {
       type: "array",
       minItems: 1,
-      // Cumulative over build phases; per-phase growth is limited by SpecWriter.
-      maxItems: 80,
+      // Cumulative over build phases and later improvements; per-phase growth is limited by SpecWriter.
+      maxItems: 400,
       items: {
         type: "object",
         additionalProperties: false,

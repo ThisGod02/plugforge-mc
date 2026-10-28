@@ -42,7 +42,7 @@ export function formatCheckResult(r: CheckResult): string {
         "LIVE",
         l,
         `  ${l.passed}/${l.total} scenarios passed on a real Paper server` +
-          (l.notPlayed ? ` (${l.notPlayed} not played: the earlier failures failed again)` : ""),
+          (l.notPlayed ? ` (${l.notPlayed} not played: the scenarios played first failed)` : ""),
       ),
     );
     for (const s of l.scenarios) {

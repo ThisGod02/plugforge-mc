@@ -266,7 +266,11 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
 
     await enter("CODE_WRITE", { note: first ? "" : "extending the current code" });
     await writeProject(ctx);
-    return fixUntilGreen(ctx, outcome);
+    // The phase's own scenarios are the likeliest to fail: play them first, and the old ones
+    // (regression) only once they pass.
+    const fresh = new Set(ctx.phase?.newCriteria.map((a) => a.id) ?? []);
+    const own = (await loadScenarios(projectDir)).scenarios.filter((s) => s.covers.some((id) => fresh.has(id))).map((s) => s.id);
+    return fixUntilGreen(ctx, outcome, own);
   };
 
   /** CHECK/FIX until green, stuck or out of fix iterations; `failedLive` are replayed first. */

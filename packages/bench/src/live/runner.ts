@@ -36,7 +36,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Server log lines that point at a real problem (plugin exceptions, failed enable, command errors). */
 const ERROR_LINE = /\sERROR\]:|Exception|Caused by:|^\s+at [\w$.]+\(|Could not pass event|Unhandled exception|Error occurred while/;
-const NOISE = /No key layers|Ambiguity between arguments|moved (too quickly|wrongly)|Can't keep up|UUID of added entity already exists|Disconnecting .*: (Took too long|Internal Exception)/;
+const NOISE = /No key layers|Ambiguity between arguments|moved (too quickly|wrongly)|Can't keep up|UUID of added entity already exists|Disconnecting .*: (Took too long|Internal Exception)|PaperVersionFetcher|Could not fetch version information|Error obtaining Paper version/;
 
 // --- text helpers ---------------------------------------------------------
 
@@ -408,7 +408,16 @@ class ScenarioRun {
 
 function serverErrors(lines: string[]): string[] {
   const out: string[] = [];
-  for (const l of lines) if (ERROR_LINE.test(l) && !NOISE.test(l)) out.push(l.length > 300 ? `${l.slice(0, 300)}…` : l);
+  // A noisy record drags its stack trace along: skip until the next "[time LEVEL]" record.
+  let noisy = false;
+  for (const l of lines) {
+    if (l.startsWith("[")) noisy = NOISE.test(l);
+    if (noisy || NOISE.test(l)) {
+      noisy = true;
+      continue;
+    }
+    if (ERROR_LINE.test(l)) out.push(l.length > 300 ? `${l.slice(0, 300)}…` : l);
+  }
   return out.slice(0, 25);
 }
 
@@ -440,7 +449,7 @@ export async function runLiveTests(o: LiveTestOptions): Promise<LiveStageResult>
     for (const [index, sc] of ordered.entries()) {
       if (index === firstCount && firstCount > 0 && results.some((r) => r.status === "failed")) {
         notPlayed = ordered.length - index;
-        log(`L2: ${results.filter((r) => r.status === "failed").length} of the ${firstCount} scenario(s) that failed before still fail; not playing the other ${notPlayed}`);
+        log(`L2: ${results.filter((r) => r.status === "failed").length} of the ${firstCount} scenario(s) played first failed; not playing the other ${notPlayed}`);
         break;
       }
       const t0 = Date.now();
