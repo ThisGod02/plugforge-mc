@@ -36,6 +36,12 @@ export type AgentState =
   | "STUCK"
   | "ERROR";
 
+/** How the next check can save time; `check` may ignore it. */
+export interface CheckHints {
+  /** Live scenarios that failed last time: play them first and stop if one fails again. */
+  liveFirst?: string[];
+}
+
 export interface AgentOptions {
   /** Spec of the first (or only) phase. */
   spec: PluginSpec;
@@ -64,7 +70,7 @@ export interface AgentOptions {
   projectDir: string;
   gateway: LlmGateway;
   /** L0 + validation + L1 (+ L2) on the project. */
-  check: (projectDir: string) => Promise<CheckResult>;
+  check: (projectDir: string, hints?: CheckHints) => Promise<CheckResult>;
   runLog: RunLog;
   log: Log;
   paperApi: string;
@@ -266,12 +272,14 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
     const history: string[] = [];
     let lastSignature = "";
     let repeats = 0;
+    // Live scenarios that failed in the last check, replayed first by the next one.
+    let liveFirst: string[] = [];
     // Set when a fixer call failed: the code did not change, so the last check still holds.
     let unchanged: CheckResult | undefined;
     for (;;) {
       await runLog.snapshot(fixIterations, projectDir);
       if (!unchanged) await enter("CHECK", { iteration: outcome.fixIterations });
-      let result = unchanged ?? (await o.check(projectDir));
+      let result = unchanged ?? (await o.check(projectDir, { liveFirst }));
       unchanged = undefined;
       if (result.ok) {
         const conformance = await specConformance(projectDir, ctx.spec);
@@ -283,6 +291,8 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
       if (tampered.length) return { ok: false, status: "error", reason: `locked files changed: ${tampered.join(", ")}`, check: result };
       if (result.ok) return { ok: true, check: result };
 
+      // Kept when L1 failed and L2 did not run: those scenarios are still the suspects.
+      if (result.live) liveFirst = result.live.scenarios.filter((s) => s.status === "failed").map((s) => s.id);
       log(`check failed: ${failureSummary(result)}`);
       if (outcome.fixIterations >= maxFix) return { ok: false, status: "stuck", reason: `fix limit of ${maxFix} iterations reached`, check: result };
       const signature = failureSignature(result);

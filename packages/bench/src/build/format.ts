@@ -37,7 +37,14 @@ export function formatCheckResult(r: CheckResult): string {
 
   const l = r.live;
   if (l) {
-    out.push(stageLine("LIVE", l, `  ${l.passed}/${l.total} scenarios passed on a real Paper server`));
+    out.push(
+      stageLine(
+        "LIVE",
+        l,
+        `  ${l.passed}/${l.total} scenarios passed on a real Paper server` +
+          (l.notPlayed ? ` (${l.notPlayed} not played: the earlier failures failed again)` : ""),
+      ),
+    );
     for (const s of l.scenarios) {
       if (s.status === "passed") continue;
       out.push(`  FAIL scenario ${s.id} (${s.file}, covers ${s.covers.join(", ")})`);

@@ -20,6 +20,7 @@ import {
   storeApiKey,
   writeSpec,
   type Answer,
+  type CheckHints,
   type Delivery,
   type LlmCall,
   type LlmContext,
@@ -307,11 +308,11 @@ async function execute(
   const bench = { java: env.java, gradle: env.gradle, log: env.log };
   let skipNoted = false;
   // L0 + L1, then L2 on a real server when the unit tests are green and the project has scenarios.
-  const check = async (dir: string) => {
+  const check = async (dir: string, hints?: CheckHints) => {
     const l1 = await checkProject({ ...bench, projectDir: dir, pluginApiVersion: env.pluginApiVersion });
     if (!env.live) return l1;
     // Scenario `covers` were validated when written; the spec grows between phases.
-    const outcome = await liveStage(l1, { ...env, projectDir: dir });
+    const outcome = await liveStage(l1, { ...env, projectDir: dir, first: hints?.liveFirst });
     if (outcome.skipped && !skipNoted) {
       skipNoted = true;
       env.log(`warning: live tests skipped: ${outcome.skipped}`);

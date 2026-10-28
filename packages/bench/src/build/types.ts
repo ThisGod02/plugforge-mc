@@ -67,6 +67,8 @@ export interface LiveStageResult extends StageResult {
   total: number;
   passed: number;
   failed: number;
+  /** Not played: scenarios that failed before failed again, so the run stopped early. */
+  notPlayed?: number;
   scenarios: ScenarioResult[];
 }
 

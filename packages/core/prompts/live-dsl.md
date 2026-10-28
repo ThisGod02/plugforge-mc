@@ -1,4 +1,4 @@
-Live scenarios (L2) are YAML files in `src/test/scenarios/`. Bots (real Minecraft clients) join a real Paper server with the plugin and play them; a harness plugin and the server console do the rest. Before each scenario the plugin's data folder, player data and ops are wiped and the server restarts, so every scenario starts fresh with default config (plus its own `config` overrides).
+Live scenarios (L2) are YAML files in `src/test/scenarios/`. Bots (real Minecraft clients) join a real Paper server with the plugin and play them; a harness plugin and the server console do the rest. Before each scenario the plugin's data folder, the whole world and ops are wiped and the server restarts, so every scenario starts fresh on a newly generated world with default config (plus its own `config` overrides).
 
 ```yaml
 id: shop-click-buys-bread            # lowercase, unique

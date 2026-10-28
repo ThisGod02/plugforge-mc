@@ -14,7 +14,7 @@ export { BudgetExceededError, LlmGateway, type LlmCall, type LlmTotals } from ".
 export { ScriptedModel } from "./llm/scripted.ts";
 export type { ChatMessage, ChatModel, LlmConfig, LlmProfile, Route } from "./llm/types.ts";
 export { applyEdits, parseEdits, type FileEdit } from "./stages/protocol.ts";
-export { runAgent, failureSignature, isEmptyDir, type AgentOptions, type AgentResult, type PhaseOutcome } from "./orchestrator/orchestrator.ts";
+export { runAgent, failureSignature, isEmptyDir, type AgentOptions, type AgentResult, type CheckHints, type PhaseOutcome } from "./orchestrator/orchestrator.ts";
 export { RunLog } from "./orchestrator/runlog.ts";
 export { deliver, readPhaseHistory, renderReadme, type Delivery } from "./orchestrator/deliver.ts";
 export { reviewCoverage, specGaps, specLanguage, type UntestedItem } from "./stages/reporter.ts";

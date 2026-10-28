@@ -17,6 +17,8 @@ export interface LiveStageOptions {
   minecraftVersion: string;
   /** Acceptance ids, to reject scenarios that cover unknown criteria. */
   criteria?: string[];
+  /** Scenario ids to play first; when one of them fails again the rest are skipped. */
+  first?: string[];
   log?: Log;
 }
 
@@ -50,6 +52,7 @@ export async function liveStage(l1: CheckResult, o: LiveStageOptions): Promise<L
     minecraftVersion: o.minecraftVersion,
     scenarios,
     log: o.log,
+    first: o.first,
   });
   return { result: live.ok ? { ...l1, live } : { ...l1, ok: false, failedStage: "live", live } };
 }

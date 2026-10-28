@@ -25,6 +25,11 @@ export interface LiveTestOptions {
   log?: Log;
   /** Whole-scenario limit (default 150 s). */
   scenarioTimeoutMs?: number;
+  /**
+   * Scenarios to play first (ids). In a fix loop these are the ones that failed last time: if
+   * one of them fails again, the rest are not played, since the result is a failure anyway.
+   */
+  first?: string[];
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -426,8 +431,18 @@ export async function runLiveTests(o: LiveTestOptions): Promise<LiveStageResult>
     return s;
   };
 
+  const firstIds = new Set(o.first ?? []);
+  const ordered = [...o.scenarios.filter((s) => firstIds.has(s.id)), ...o.scenarios.filter((s) => !firstIds.has(s.id))];
+  const firstCount = ordered.filter((s) => firstIds.has(s.id)).length;
+  let notPlayed = 0;
+
   try {
-    for (const sc of o.scenarios) {
+    for (const [index, sc] of ordered.entries()) {
+      if (index === firstCount && firstCount > 0 && results.some((r) => r.status === "failed")) {
+        notPlayed = ordered.length - index;
+        log(`L2: ${results.filter((r) => r.status === "failed").length} of the ${firstCount} scenario(s) that failed before still fail; not playing the other ${notPlayed}`);
+        break;
+      }
       const t0 = Date.now();
       log(`L2: scenario ${sc.id} (${sc.covers.join(", ")})`);
       const steps: ScenarioStepResult[] = [];
@@ -439,9 +454,12 @@ export async function runLiveTests(o: LiveTestOptions): Promise<LiveStageResult>
       const firstServer = servers.length;
 
       try {
-        // Clean slate: the plugin's own data, players' inventories and stats, ops.
+        // Clean slate: the plugin's own data, ops, and a freshly generated world — blocks and
+        // mobs a previous scenario left behind must not leak into this one.
         await rm(path.join(dir, "plugins", o.pluginName), { recursive: true, force: true });
-        for (const sub of ["playerdata", "stats", "advancements"]) await rm(path.join(dir, "world", sub), { recursive: true, force: true });
+        for (const world of ["world", "world_nether", "world_the_end"]) {
+          await rm(path.join(dir, world), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        }
         await writeFile(path.join(dir, "ops.json"), "[]");
         if (sc.config) {
           // Only the overridden keys: Bukkit fills the rest from the config.yml inside the jar.
@@ -506,9 +524,10 @@ export async function runLiveTests(o: LiveTestOptions): Promise<LiveStageResult>
     ok: failed === 0,
     durationMs: Date.now() - started,
     diagnostics: [],
-    total: results.length,
+    total: results.length + notPlayed,
     passed: results.length - failed,
     failed,
+    ...(notPlayed ? { notPlayed } : {}),
     scenarios: results,
   };
 }
