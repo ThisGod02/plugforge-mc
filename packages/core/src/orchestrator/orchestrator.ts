@@ -242,7 +242,6 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
 
   /** One phase: tests and scenarios for its new criteria, code, then check/fix until green. */
   const buildPhase = async (ctx: StageContext, outcome: PhaseOutcome, first: boolean): Promise<PhaseResult> => {
-    let reviews = 0;
     if (o.testsDir) {
       log(`installed ${await installTests(o.testsDir, projectDir)} ready-made test file(s)`);
       const missing = Object.entries(await coverageOf(ctx.spec, projectDir)).filter(([, t]) => t.length === 0).map(([id]) => id);
@@ -264,16 +263,21 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
       }
     }
     await runLog.event("TESTS_LOCKED", { coverage: await coverageOf(ctx.spec, projectDir) });
-    let locked = await lockedFingerprint(projectDir);
 
     await enter("CODE_WRITE", { note: first ? "" : "extending the current code" });
     await writeProject(ctx);
+    return fixUntilGreen(ctx, outcome);
+  };
 
+  /** CHECK/FIX until green, stuck or out of fix iterations; `failedLive` are replayed first. */
+  const fixUntilGreen = async (ctx: StageContext, outcome: PhaseOutcome, failedLive: string[] = []): Promise<PhaseResult> => {
+    let reviews = 0;
+    let locked = await lockedFingerprint(projectDir);
     const history: string[] = [];
     let lastSignature = "";
     let repeats = 0;
     // Live scenarios that failed in the last check, replayed first by the next one.
-    let liveFirst: string[] = [];
+    let liveFirst = failedLive;
     // Set when a fixer call failed: the code did not change, so the last check still holds.
     let unchanged: CheckResult | undefined;
     for (;;) {
@@ -376,10 +380,23 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
     if (built) {
       // The starting point must be green: it is what a failed improvement rolls back to.
       await enter("CHECK", { note: `the existing plugin in ${projectDir}` });
-      const base = await o.check(projectDir);
+      let base = await o.check(projectDir);
       if (!base.ok) {
-        const reason = `the existing plugin is not green (${failureSummary(base)}); run \`check\` on it first`;
-        return finish({ status: "error", reason, fixIterations, check: base, disputes, phases: outcomes });
+        // Repair it against its own tests first (a flaky scenario passes on the replay); the
+        // untouched original comes back if that fails.
+        log(`the existing plugin is not green (${failureSummary(base)}); repairing it before the new phases`);
+        await saveGreen(projectDir);
+        const ctx: StageContext = { spec, projectDir, gateway: o.gateway, paperApi: o.paperApi, pluginApiVersion: o.pluginApiVersion, log };
+        const repair: PhaseOutcome = { title: "repair", status: "not_started", fixIterations: 0, criteria: [] };
+        const failedLive = base.live?.scenarios.filter((s) => s.status === "failed").map((s) => s.id) ?? [];
+        const r = await fixUntilGreen(ctx, repair, failedLive);
+        if (!r.ok) {
+          await restoreGreen(projectDir);
+          const reason = `the existing plugin is not green (${failureSummary(base)}) and could not be repaired: ${r.reason}; it was left unchanged`;
+          return finish({ status: "error", reason, fixIterations, check: r.check ?? base, disputes, phases: outcomes });
+        }
+        base = r.check;
+        log(`existing plugin repaired in ${repair.fixIterations} fix(es)`);
       }
       green = { spec, check: base };
       log(`existing plugin green: ${greenLine(base)}`);

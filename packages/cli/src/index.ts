@@ -1,5 +1,6 @@
 #!/usr/bin/env -S npx tsx
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { TestServer, checkProject, connectBot, formatCheckResult, liveStage } from "@plugforge/bench";
@@ -45,9 +46,11 @@ Commands:
   create "<request>"    Agent from a text request: questions → plan (you approve it) → per phase spec → tests → code → fixes
                         (--out <dir>, --yes to take recommended answers and approve, --answers <file.json>,
                          --review-specs to approve every phase spec too, --max-fix <n> [10],
+                         --request-file <file> to read the request from a UTF-8 file,
                          --scripted <replies.json> to replay canned LLM answers)
   improve <dir> "<change>"  Add to or change a plugin the agent built: new phases on top of it, the old
-                        tests stay as regression, a failed change rolls back (same flags as create, no --out)
+                        tests stay as regression, a failed change rolls back (same flags as create, no --out);
+                        a plugin that is no longer green is repaired against its own tests first
   run <spec.json>       Agent from a ready spec: tests (ready-made or TestWriter) → code → fixes
                         (--out <dir>, --tests <dir> [default: tests/ next to the spec, else TestWriter],
                          --max-fix <n> [10], --scripted <replies.json>)
@@ -199,6 +202,7 @@ async function main() {
       scripted: { type: "string" },
       "max-fix": { type: "string" },
       answers: { type: "string" },
+      "request-file": { type: "string" },
       yes: { type: "boolean", short: "y", default: false },
       "review-specs": { type: "boolean", default: false },
       "skip-live": { type: "boolean", default: false },
@@ -243,11 +247,14 @@ async function main() {
     case "create":
     case "improve": {
       const improving = positionals[0] === "improve";
-      if (improving && !positionals[1]) throw new Error('usage: improve <project dir> "<what to add or change>"');
+      if (improving && !positionals[1]) throw new Error('usage: improve <project dir> "<what to add or change>" | --request-file <file>');
       const { versions, java, gradle, paper } = await setup();
       const run = improving ? (o: Parameters<typeof createCommand>[0]) => improveCommand({ ...o, dir: positionals[1]! }) : createCommand;
       const ok = await run({
-        request: positionals.slice(improving ? 2 : 1).join(" "),
+        // A file keeps long non-ASCII requests intact; consoles can mangle pasted text.
+        request: values["request-file"]
+          ? (await readFile(values["request-file"], "utf8")).replace(/^﻿/, "").trim()
+          : positionals.slice(improving ? 2 : 1).join(" "),
         out: values.out,
         yes: values.yes!,
         reviewSpecs: values["review-specs"],
