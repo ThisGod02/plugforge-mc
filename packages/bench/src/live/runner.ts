@@ -36,7 +36,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Server log lines that point at a real problem (plugin exceptions, failed enable, command errors). */
 const ERROR_LINE = /\sERROR\]:|Exception|Caused by:|^\s+at [\w$.]+\(|Could not pass event|Unhandled exception|Error occurred while/;
-const NOISE = /No key layers|Ambiguity between arguments|moved (too quickly|wrongly)|Can't keep up|UUID of added entity already exists|Disconnecting .*: (Took too long|Internal Exception)|PaperVersionFetcher|Could not fetch version information|Error obtaining Paper version/;
+const NOISE = /No key layers|Ambiguity between arguments|moved (too quickly|wrongly)|Can't keep up|UUID of added entity already exists|Disconnecting .*: (Took too long|Internal Exception)|PaperVersionFetcher|Could not fetch version information|Error obtaining (Paper )?version|Cannot fetch version info|Failed to request yggdrasil public key/;
 
 // --- text helpers ---------------------------------------------------------
 
