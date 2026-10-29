@@ -36,6 +36,10 @@ server.getPlayerExact("Steve");  steve.disconnect();      // look up / take a pl
 steve.simulateDamage(2.0, alex);                         // damage that fires EntityDamageByEntityEvent (cause ENTITY_ATTACK)
 steve.setNoDamageTicks(0);                                // allow another hit right away
 
+Block block = world.getBlockAt(x, y, z); block.setType(Material.CHEST);
+((Chest) block.getState()).getInventory().addItem(new ItemStack(Material.COBBLESTONE)); // live chest contents: put
+((Chest) block.getState()).getInventory().contains(Material.COBBLESTONE);               // ... and read them back
+
 server.getScheduler().performTicks(20);                   // run scheduled tasks for 20 ticks (1 second)
 server.getPluginManager().assertEventFired(PlayerJoinEvent.class);
 ```
@@ -47,4 +51,6 @@ Traps:
 - There is no `player.chat`/`assertChat` for command replies; use `nextMessage()`.
 - `addPlayer()` already fires PlayerJoinEvent; join messages the plugin sends are queued on that player.
 - A non-op player without an attachment has no op-default permissions.
+- Mobs spawned in MockBukkit have max health 20 whatever their type, and `setHealth(x)` silently clamps to the max. To give a mob more health, set it first: `mob.getAttribute(Attribute.MAX_HEALTH).setBaseValue(100); mob.setHealth(100);`, or compute expectations from `mob.getHealth()` read back.
+- Never call `state.update()` after changing a container's `getInventory()`: update writes the state's own (empty) snapshot back and wipes the items you just put in. Same on a real server.
 - `player.damage(x)` and `player.damage(x, entity)` only lower health: they fire NO EntityDamageEvent, so plugin listeners never react. To test "on damage" behaviour use `player.simulateDamage(x, otherEntity)`. `player.damage(x, DamageSource)` is not implemented and throws.

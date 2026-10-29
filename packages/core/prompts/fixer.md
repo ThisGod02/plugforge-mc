@@ -39,4 +39,4 @@ FILE: src/main/java/path/To/NewFile.java
 full file content
 ```
 
-If you are sure a test itself is wrong, still fix everything else, and add one line starting with `TEST_DISPUTE:` that names the test and explains why.
+If you are sure a test itself is wrong, still fix everything else, and add one line starting with `TEST_DISPUTE:` that names the test and explains why. A test is wrong when its own setup undoes itself (e.g. it fills a chest and then calls `state.update()`, which writes the empty snapshot back) or when the same failure survived earlier honest fixes: say so instead of trying again.

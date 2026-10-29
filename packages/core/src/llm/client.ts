@@ -1,3 +1,4 @@
+import { Agent, fetch } from "undici";
 import type { ChatModel, ChatRequest, ChatResponse, LlmProfile, Pricing, Usage } from "./types.ts";
 
 export class LlmHttpError extends Error {
@@ -39,6 +40,12 @@ export class OpenAiCompatibleModel implements ChatModel {
     return this.profile.timeoutMs ?? 900_000;
   }
 
+  private agent?: Agent;
+  private get dispatcher(): Agent {
+    this.agent ??= new Agent({ headersTimeout: this.timeoutMs, bodyTimeout: this.timeoutMs });
+    return this.agent;
+  }
+
   async complete(req: ChatRequest): Promise<ChatResponse> {
     const p = this.profile;
     const body: Record<string, unknown> = {
@@ -67,6 +74,9 @@ export class OpenAiCompatibleModel implements ChatModel {
   private async send(body: Record<string, unknown>): Promise<ChatResponse> {
     const url = `${this.profile.baseUrl.replace(/\/+$/, "")}/chat/completions`;
     const res = await fetch(url, {
+      // Without streaming, a long reasoning call sends nothing until it is done; undici's default
+      // 300s header/body timeouts would cut it ("fetch failed") long before ours.
+      dispatcher: this.dispatcher,
       method: "POST",
       headers: {
         "Content-Type": "application/json",

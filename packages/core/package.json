@@ -8,6 +8,7 @@
     "@plugforge/bench": "*",
     "@plugforge/runtime": "*",
     "ajv": "^8.20.0",
+    "undici": "^7.16.0",
     "yaml": "^2.9.1"
   }
 }
